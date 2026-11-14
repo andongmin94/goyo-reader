@@ -19,7 +19,7 @@ import kr.goyo.reader.model.ReaderSettings
 import kr.goyo.reader.model.ReadingMode
 import kr.goyo.reader.model.ReadingPosition
 import kr.goyo.reader.reader.TextReader
-import kr.goyo.reader.ui.GoyoTheme
+import kr.goyo.reader.ui.MinViewerTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -33,7 +33,7 @@ import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], application = GoyoApplication::class, qualifiers = "w320dp-h891dp")
+@Config(sdk = [35], application = MinViewerApplication::class, qualifiers = "w320dp-h891dp")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class TextReaderBehaviorTest {
@@ -144,7 +144,7 @@ class TextReaderBehaviorTest {
         val source = temporary.newFile("reader.txt").apply { writeText(text) }
         preferences.value = settings
         compose.setContent {
-            GoyoTheme {
+            MinViewerTheme {
                 TextReader(
                     file = source,
                     initialPosition = initialPosition,

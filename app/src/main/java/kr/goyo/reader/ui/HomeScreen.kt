@@ -14,9 +14,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kr.goyo.reader.R
 import kr.goyo.reader.model.BookKind
 import kr.goyo.reader.model.BookRecord
 
@@ -36,7 +38,7 @@ fun HomeScreen(books: List<BookRecord>, onOpen: (BookRecord) -> Unit, onImport: 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(title = { Text("고요", style = MaterialTheme.typography.headlineMedium) }, actions = {
+            TopAppBar(title = { Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium) }, actions = {
                 IconButton(onClick = onSettings) { Icon(Icons.Outlined.Tune, "독서 설정") }
             }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
         },

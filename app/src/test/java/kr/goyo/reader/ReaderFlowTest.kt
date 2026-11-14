@@ -40,7 +40,7 @@ import org.robolectric.annotation.LooperMode
 // Robolectric #8460: platform-width dialogs containing a TextField can continuously
 // remeasure when the configured width exceeds its 320dp window. Keep the real dialog
 // and text-entry assertions; use the native test window's width instead.
-@Config(sdk = [35], application = GoyoApplication::class, qualifiers = "w320dp-h891dp")
+@Config(sdk = [35], application = MinViewerApplication::class, qualifiers = "w320dp-h891dp")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class ReaderFlowTest {
@@ -49,7 +49,7 @@ class ReaderFlowTest {
 
     @Test
     fun importedBookCanBeReadBookmarkedAndResumedFromTheShelf() {
-        val repository = (compose.activity.application as GoyoApplication).library
+        val repository = (compose.activity.application as MinViewerApplication).library
         val source: File = temporary.newFile("읽기 흐름 샘플.txt").apply {
             writeText("고요한 저녁, 책장을 펼쳤습니다. 다음 문장도 천천히 읽습니다.\n\n".repeat(180))
         }

@@ -35,7 +35,7 @@ import org.readium.r2.shared.util.http.HttpTry
 import org.readium.r2.streamer.PublicationOpener
 import org.readium.r2.streamer.parser.epub.EpubParser
 
-internal val customFontFamily = FontFamily("Goyo User Font")
+internal val customFontFamily = FontFamily("Min Viewer User Font")
 
 private object OfflineHttpClient : HttpClient {
     override suspend fun stream(request: HttpRequest): HttpTry<HttpStreamResponse> =

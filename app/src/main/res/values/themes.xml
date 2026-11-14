@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.Goyo" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="Theme.MinViewer" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:colorAccent">#496A58</item>

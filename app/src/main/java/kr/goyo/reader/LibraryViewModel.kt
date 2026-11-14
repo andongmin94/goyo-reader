@@ -16,7 +16,7 @@ data class ImportProgress(val title: String, val complete: Int = 0, val total: I
 
 @OptIn(FlowPreview::class)
 class LibraryViewModel(application: Application, private val savedState: SavedStateHandle) : AndroidViewModel(application) {
-    val repository = (application as GoyoApplication).library
+    val repository = (application as MinViewerApplication).library
     private val _library = MutableStateFlow(LibraryState())
     val library = _library.asStateFlow()
     val ready = MutableStateFlow(false)

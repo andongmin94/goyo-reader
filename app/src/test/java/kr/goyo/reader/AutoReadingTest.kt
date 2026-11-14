@@ -29,7 +29,7 @@ import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], application = GoyoApplication::class, qualifiers = "w320dp-h891dp")
+@Config(sdk = [35], application = MinViewerApplication::class, qualifiers = "w320dp-h891dp")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class AutoReadingTest {
@@ -45,7 +45,7 @@ class AutoReadingTest {
     @Test fun comicScrollFinishesAutomaticReadingAtTheEnd() = checkCompletion(BookKind.COMIC, ReadingMode.SCROLL)
 
     private fun checkCompletion(kind: BookKind, mode: ReadingMode) {
-        val repository = (compose.activity.application as GoyoApplication).library
+        val repository = (compose.activity.application as MinViewerApplication).library
         val source = if (kind == BookKind.TEXT) {
             temporary.newFile("automatic-reading.txt").apply {
                 writeText("마지막까지 읽은 뒤 자동 읽기는 정상적으로 끝나야 합니다. 0123456789.\n".repeat(180))

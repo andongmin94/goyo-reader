@@ -17,7 +17,7 @@ import kr.goyo.reader.MainActivity
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GoyoApp(model: LibraryViewModel, activity: MainActivity) {
+fun MinViewerApp(model: LibraryViewModel, activity: MainActivity) {
     val library by model.library.collectAsStateWithLifecycle()
     val ready by model.ready.collectAsStateWithLifecycle()
     val bookId by model.bookId.collectAsStateWithLifecycle()

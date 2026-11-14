@@ -5,7 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 
-private val GoyoColors = lightColorScheme(
+private val MinViewerColors = lightColorScheme(
     primary = Color(0xFF496A58), onPrimary = Color.White,
     primaryContainer = Color(0xFFDCE8DC), onPrimaryContainer = Color(0xFF213A2B),
     secondary = Color(0xFF8C6954), secondaryContainer = Color(0xFFF0E1D5),
@@ -15,8 +15,8 @@ private val GoyoColors = lightColorScheme(
 )
 
 @Composable
-fun GoyoTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = GoyoColors, typography = Typography().let {
+fun MinViewerTheme(content: @Composable () -> Unit) {
+    MaterialTheme(colorScheme = MinViewerColors, typography = Typography().let {
         it.copy(headlineLarge = it.headlineLarge.copy(fontFamily = FontFamily.Serif), headlineMedium = it.headlineMedium.copy(fontFamily = FontFamily.Serif))
     }, content = content)
 }

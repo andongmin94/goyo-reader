@@ -22,7 +22,7 @@ import kr.goyo.reader.model.ReaderInfo
 import kr.goyo.reader.model.ReaderSettings
 import kr.goyo.reader.model.ReadingPosition
 import kr.goyo.reader.reader.VisualReader
-import kr.goyo.reader.ui.GoyoTheme
+import kr.goyo.reader.ui.MinViewerTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -102,7 +102,7 @@ class VisualReaderInteractionTest {
     private fun openComic() {
         val file = comicFixture()
         compose.setContent {
-            GoyoTheme {
+            MinViewerTheme {
                 VisualReader(
                     file = file,
                     kind = BookKind.COMIC,
