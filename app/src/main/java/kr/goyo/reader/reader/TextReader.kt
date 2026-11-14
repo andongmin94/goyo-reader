@@ -56,6 +56,8 @@ import kr.goyo.reader.model.ReadingMode
 import kr.goyo.reader.model.ReadingPosition
 import kr.goyo.reader.model.SearchResult
 import kr.goyo.reader.model.TapLayout
+import kr.goyo.reader.model.pageAtProgress
+import kr.goyo.reader.model.pageProgress
 import kr.goyo.reader.reader.text.TextDecoder
 import kr.goyo.reader.reader.text.TextDocument
 import kr.goyo.reader.reader.text.TextPageLayouts
@@ -67,7 +69,9 @@ import kr.goyo.reader.reader.text.safeTextOffset
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.onEach
@@ -186,7 +190,15 @@ private fun TextReaderContent(
     val layouts = remember(pagination, settings.textColor) {
         TextPageLayouts(pagination, settings.textColor.toInt())
     }
-    val initial = remember { anchor.value }
+    val initial = remember {
+        val index = safeTextOffset(pagination.document.text, anchor.value.index)
+        anchor.value.copy(
+            index = index,
+            progress = if (settings.readingMode == ReadingMode.PAGE) {
+                pageProgress(pagination.pageFor(index), pagination.size)
+            } else index.toFloat() / (pagination.document.text.length - 1).coerceAtLeast(1),
+        )
+    }
     val initialPage = pagination.pageFor(initial.index)
     val pager = rememberPagerState(initialPage = initialPage, pageCount = { pagination.size })
     val list = rememberLazyListState(
@@ -198,14 +210,22 @@ private fun TextReaderContent(
     val searchCallback by rememberUpdatedState(onSearchResults)
     val chromeCallback by rememberUpdatedState(onToggleChrome)
     val pendingSeek = remember { mutableStateOf<ReadingPosition?>(null) }
+    val anchorViewport = remember { mutableStateOf<Pair<Int, Int>?>(null) }
+
+    fun syncScrollAnchor(viewport: Pair<Int, Int> = list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset) {
+        val previous = anchorViewport.value
+        // Restoring a character inside a line must not replace it with that line's start.
+        if (previous != null && previous != viewport) {
+            anchor.value = positionAtScroll(pagination, layouts, viewport.first, viewport.second)
+        }
+        anchorViewport.value = viewport
+    }
 
     DisposableEffect(lifecycle, pagination, settings.readingMode) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE) {
                 if (settings.readingMode == ReadingMode.SCROLL) {
-                    anchor.value = positionAtScroll(
-                        pagination, layouts, list.firstVisibleItemIndex, list.firstVisibleItemScrollOffset,
-                    )
+                    syncScrollAnchor()
                 }
                 positionCallback(anchor.value)
             }
@@ -213,12 +233,10 @@ private fun TextReaderContent(
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
+            if (settings.readingMode == ReadingMode.SCROLL) syncScrollAnchor()
             positionCallback(anchor.value)
         }
     }
-
-    fun pageProgress(page: Int): Float =
-        if (pagination.size == 1) 1f else page.toFloat() / (pagination.size - 1)
 
     fun report(position: ReadingPosition, page: Int) {
         positionCallback(position)
@@ -226,11 +244,13 @@ private fun TextReaderContent(
     }
 
     suspend fun turn(forward: Boolean) {
-        if (settings.readingMode == ReadingMode.PAGE) {
-            val target = (pager.currentPage + if (forward) 1 else -1).coerceIn(0, pagination.size - 1)
-            pager.animateScrollToPage(target)
-        } else {
-            list.animateScrollBy(pagination.typography.heightPx * 0.85f * if (forward) 1f else -1f)
+        runReaderScroll {
+            if (settings.readingMode == ReadingMode.PAGE) {
+                val target = (pager.currentPage + if (forward) 1 else -1).coerceIn(0, pagination.size - 1)
+                pager.animateScrollToPage(target)
+            } else {
+                list.animateScrollBy(pagination.typography.heightPx * 0.85f * if (forward) 1f else -1f)
+            }
         }
     }
 
@@ -239,21 +259,29 @@ private fun TextReaderContent(
         val page = pagination.pageFor(index)
         val position = request.copy(
             index = index,
-            progress = if (settings.readingMode == ReadingMode.PAGE) pageProgress(page)
+            progress = if (settings.readingMode == ReadingMode.PAGE) pageProgress(page, pagination.size)
                 else index.toFloat() / (pagination.document.text.length - 1).coerceAtLeast(1),
         )
-        anchor.value = position
         if (settings.readingMode == ReadingMode.PAGE) {
-            pendingSeek.value = position
-            pager.scrollToPage(page)
-            report(position, page)
+            pendingSeek.value = null
+            if (runReaderScroll { pager.scrollToPage(page) }) {
+                pendingSeek.value = position
+                anchor.value = position
+                report(position, page)
+            }
         } else {
-            list.scrollToItem(page, scrollOffset(pagination, layouts, position))
-            report(position, page)
+            if (runReaderScroll { list.scrollToItem(page, scrollOffset(pagination, layouts, position)) }) {
+                anchorViewport.value = list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset
+                anchor.value = position
+                report(position, page)
+            } else {
+                syncScrollAnchor()
+            }
         }
     }
 
     LaunchedEffect(pagination, settings.readingMode) {
+        anchor.value = initial
         report(initial, initialPage)
         if (settings.readingMode == ReadingMode.PAGE) {
             var previous = initialPage
@@ -262,7 +290,7 @@ private fun TextReaderContent(
                 if (page != previous) {
                     previous = page
                     val position = pendingSeek.value?.takeIf { pagination.pageFor(it.index) == page }
-                        ?: ReadingPosition(index = pagination.starts[page], progress = pageProgress(page))
+                        ?: ReadingPosition(index = pagination.starts[page], progress = pageProgress(page, pagination.size))
                     pendingSeek.value = null
                     anchor.value = position
                     report(position, page)
@@ -271,11 +299,9 @@ private fun TextReaderContent(
         } else {
             snapshotFlow { list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset }
                 .distinctUntilChanged()
-                .onEach { (page, offset) ->
-                    anchor.value = positionAtScroll(pagination, layouts, page, offset)
-                }
+                .onEach { viewport -> syncScrollAnchor(viewport) }
                 .sample(180L)
-                .collect { (page, _) -> report(anchor.value, page) }
+                .collect { report(anchor.value, pagination.pageFor(anchor.value.index)) }
         }
     }
 
@@ -290,7 +316,9 @@ private fun TextReaderContent(
                     seek(ReadingPosition(index = pagination.starts[page]))
                 }
                 is ReaderCommand.SeekProgress -> seek(ReadingPosition(
-                    index = ((pagination.document.text.length - 1) * command.progress.coerceIn(0f, 1f)).toInt(),
+                    index = if (settings.readingMode == ReadingMode.PAGE) {
+                        pagination.starts[pageAtProgress(command.progress, pagination.size)]
+                    } else ((pagination.document.text.length - 1) * command.progress.coerceIn(0f, 1f)).toInt(),
                 ))
                 is ReaderCommand.Search -> {
                     val results = withContext(Dispatchers.Default) {
@@ -328,7 +356,7 @@ private fun TextReaderContent(
                 while (isActive && list.canScrollForward) {
                     val frame = withFrameNanos { it }
                     val seconds = ((frame - lastFrame) / 1_000_000_000f).coerceAtMost(0.1f)
-                    list.scrollBy(pixelsPerSecond * seconds)
+                    runReaderScroll { list.scrollBy(pixelsPerSecond * seconds) }
                     lastFrame = frame
                 }
             }
@@ -374,6 +402,15 @@ private fun TextReaderContent(
             }
         }
     }
+}
+
+private suspend fun runReaderScroll(block: suspend () -> Unit): Boolean = try {
+    block()
+    true
+} catch (_: CancellationException) {
+    // A drag cancels the scroll mutation; disposing the reader cancels its owner too.
+    currentCoroutineContext().ensureActive()
+    false
 }
 
 @Composable

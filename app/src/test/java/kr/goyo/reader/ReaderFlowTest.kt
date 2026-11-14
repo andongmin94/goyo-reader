@@ -3,6 +3,9 @@ package kr.goyo.reader
 import android.app.Activity
 import android.net.Uri
 import android.view.KeyEvent
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
@@ -13,6 +16,7 @@ import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextReplacement
 import java.io.File
 import kotlinx.coroutines.flow.first
@@ -67,6 +71,13 @@ class ReaderFlowTest {
         compose.waitUntil(10_000) {
             compose.onAllNodes(hasText("2 / ", substring = true)).fetchSemanticsNodes().isNotEmpty()
         }
+
+        val progressSlider = compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress))
+        val actualProgress = progressSlider.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].current
+        progressSlider.performSemanticsAction(SemanticsActions.SetProgress) { it(actualProgress * 1.1f) }
+        compose.waitForIdle()
+        assertEquals("Releasing within the current page must show its actual progress", actualProgress,
+            progressSlider.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].current, 0.0001f)
 
         // Dispatch through the framework Activity API so the real key callback path runs.
         val activity: Activity = compose.activity

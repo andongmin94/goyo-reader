@@ -87,6 +87,7 @@ class EpubHostFragment : Fragment() {
     private var loadingView: ProgressBar? = null
     private var errorView: TextView? = null
     private var noticeToast: Toast? = null
+    private var searchJob: Job? = null
 
     internal fun connect(value: EpubConnection) {
         connection.value = value
@@ -266,7 +267,6 @@ class EpubHostFragment : Fragment() {
                 }
             }
             launch {
-                var searchJob: Job? = null
                 callbacks.commands.collect { command ->
                     when (command) {
                         ReaderCommand.Next -> turn(navigator, book, forward = true)
@@ -285,7 +285,8 @@ class EpubHostFragment : Fragment() {
                         }
                         is ReaderCommand.Search -> {
                             searchJob?.cancel()
-                            searchJob = launch {
+                            // Keep an in-flight search across STOP/START; destroy the view to cancel it.
+                            searchJob = viewLifecycleOwner.lifecycleScope.launch {
                                 try {
                                     callbacks.onSearchResults(search(book, command.query))
                                 } catch (cancelled: CancellationException) {
@@ -458,6 +459,7 @@ class EpubHostFragment : Fragment() {
 
     override fun onDestroyView() {
         readyNavigator.value = null
+        searchJob = null
         noticeToast?.cancel()
         noticeToast = null
         loadingView = null

@@ -78,6 +78,8 @@ import kr.goyo.reader.model.ReadingMode
 import kr.goyo.reader.model.ReadingPosition
 import kr.goyo.reader.model.SearchResult
 import kr.goyo.reader.model.TapLayout
+import kr.goyo.reader.model.pageAtProgress
+import kr.goyo.reader.model.pageProgress
 import kr.goyo.reader.reader.visual.ImagePageSource
 import kr.goyo.reader.reader.visual.VisualPageSource
 import kr.goyo.reader.reader.visual.buildPageSlices
@@ -186,21 +188,24 @@ private fun PagedVisualReader(
     LaunchedEffect(pager) {
         snapshotFlow { pager.settledPage }.distinctUntilChanged().collect { page ->
             zoomed = false
-            positionCallback(ReadingPosition(index = page, progress = (page + 1f) / count))
+            positionCallback(ReadingPosition(index = page, progress = pageProgress(page, count)))
             infoCallback(ReaderInfo(current = page + 1, total = count, supportsSearch = false))
         }
     }
     LaunchedEffect(commands, pager) {
         commands.collect { command ->
-            when (command) {
-                ReaderCommand.Next -> changePage(1)
-                ReaderCommand.Previous -> changePage(-1)
-                is ReaderCommand.Seek -> pager.scrollToPage(command.position.index.coerceIn(0, count - 1))
-                is ReaderCommand.SeekPage -> pager.scrollToPage(command.page.coerceIn(1, count) - 1)
-                is ReaderCommand.SeekProgress -> pager.scrollToPage(
-                    (command.progress.coerceIn(0f, 1f) * (count - 1)).roundToInt(),
-                )
-                is ReaderCommand.Search -> searchCallback(emptyList())
+            try {
+                when (command) {
+                    ReaderCommand.Next -> changePage(1)
+                    ReaderCommand.Previous -> changePage(-1)
+                    is ReaderCommand.Seek -> pager.scrollToPage(command.position.index.coerceIn(0, count - 1))
+                    is ReaderCommand.SeekPage -> pager.scrollToPage(command.page.coerceIn(1, count) - 1)
+                    is ReaderCommand.SeekProgress -> pager.scrollToPage(pageAtProgress(command.progress, count))
+                    is ReaderCommand.Search -> searchCallback(emptyList())
+                }
+            } catch (cancelled: CancellationException) {
+                // A gesture cancels this move, but later reader commands must still be collected.
+                currentCoroutineContext().ensureActive()
             }
         }
     }
@@ -209,7 +214,13 @@ private fun PagedVisualReader(
             while (isActive) {
                 delay(currentSettings.autoPageSeconds.coerceAtLeast(1) * 1000L)
                 if (pager.currentPage == count - 1) return@repeatOnLifecycle
-                if (!pager.isScrollInProgress && !zoomed) changePage(1)
+                if (!pager.isScrollInProgress && !zoomed) {
+                    try {
+                        changePage(1)
+                    } catch (cancelled: CancellationException) {
+                        currentCoroutineContext().ensureActive()
+                    }
+                }
             }
         }
     }
@@ -337,20 +348,24 @@ private fun ScrolledVisualReader(
         }
         LaunchedEffect(commands, list, slices) {
             commands.collect { command ->
-                when (command) {
-                    ReaderCommand.Next -> { zoom.reset(); list.scrollBy(height * 0.85f) }
-                    ReaderCommand.Previous -> { zoom.reset(); list.scrollBy(-height * 0.85f) }
-                    is ReaderCommand.Seek -> seek(command.position)
-                    is ReaderCommand.SeekPage -> seek(
-                        ReadingPosition(index = command.page.coerceIn(1, source.dimensions.size) - 1),
-                    )
-                    is ReaderCommand.SeekProgress -> {
-                        val fraction = command.progress.coerceIn(0f, 1f)
-                        val absolutePage = fraction * source.dimensions.size
-                        val page = absolutePage.toInt().coerceIn(source.dimensions.indices)
-                        seek(ReadingPosition(index = page, offset = (absolutePage - page).coerceIn(0f, 1f)))
+                try {
+                    when (command) {
+                        ReaderCommand.Next -> { zoom.reset(); list.scrollBy(height * 0.85f) }
+                        ReaderCommand.Previous -> { zoom.reset(); list.scrollBy(-height * 0.85f) }
+                        is ReaderCommand.Seek -> seek(command.position)
+                        is ReaderCommand.SeekPage -> seek(
+                            ReadingPosition(index = command.page.coerceIn(1, source.dimensions.size) - 1),
+                        )
+                        is ReaderCommand.SeekProgress -> {
+                            val fraction = command.progress.coerceIn(0f, 1f)
+                            val absolutePage = fraction * source.dimensions.size
+                            val page = absolutePage.toInt().coerceIn(source.dimensions.indices)
+                            seek(ReadingPosition(index = page, offset = (absolutePage - page).coerceIn(0f, 1f)))
+                        }
+                        is ReaderCommand.Search -> searchCallback(emptyList())
                     }
-                    is ReaderCommand.Search -> searchCallback(emptyList())
+                } catch (cancelled: CancellationException) {
+                    currentCoroutineContext().ensureActive()
                 }
             }
         }

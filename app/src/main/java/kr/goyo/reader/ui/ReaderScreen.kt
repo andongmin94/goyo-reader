@@ -146,7 +146,12 @@ fun ReaderScreen(
                         }
                         IconButton(onClick = { send(ReaderCommand.Next) }) { Icon(Icons.AutoMirrored.Outlined.NavigateNext, "다음 $unit") }
                     }
-                    Slider(progress, { isSeeking = true; progress = it }, onValueChangeFinished = { send(ReaderCommand.SeekProgress(progress)); isSeeking = false }, modifier = Modifier.fillMaxWidth())
+                    Slider(progress, { isSeeking = true; progress = it }, onValueChangeFinished = {
+                        val requestedProgress = progress
+                        isSeeking = false
+                        progress = position.progress.coerceIn(0f, 1f)
+                        send(ReaderCommand.SeekProgress(requestedProgress))
+                    }, modifier = Modifier.fillMaxWidth())
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         IconButton(onClick = { sheet = "search" }, enabled = info.supportsSearch) { Icon(Icons.Outlined.Search, "본문 검색") }
                         IconButton(onClick = { sheet = "contents" }, enabled = info.outline.isNotEmpty()) { Icon(Icons.AutoMirrored.Outlined.FormatListBulleted, "목차") }
