@@ -92,6 +92,7 @@ fun TextReader(
     onSearchResults: (List<SearchResult>) -> Unit,
     onToggleChrome: () -> Unit,
     onError: (String) -> Unit,
+    onAutoReadingFinished: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val anchor = remember(file.absolutePath) { mutableStateOf(initialPosition) }
@@ -153,9 +154,10 @@ fun TextReader(
                 CircularProgressIndicator()
             }
         } else if (document.text.isEmpty()) {
-            LaunchedEffect(pages) {
+            LaunchedEffect(pages, autoReading) {
                 onInfo(ReaderInfo(supportsSearch = true))
                 onPosition(ReadingPosition())
+                if (autoReading) onAutoReadingFinished()
             }
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("빈 텍스트 파일입니다.", color = Color(settings.textColor))
@@ -164,7 +166,7 @@ fun TextReader(
             key(pages, settings.readingMode) {
                 TextReaderContent(
                     pages, anchor, settings, commands, autoReading, onPosition,
-                    onInfo, onSearchResults, onToggleChrome,
+                    onInfo, onSearchResults, onToggleChrome, onAutoReadingFinished,
                 )
             }
         }
@@ -183,6 +185,7 @@ private fun TextReaderContent(
     onInfo: (ReaderInfo) -> Unit,
     onSearchResults: (List<SearchResult>) -> Unit,
     onToggleChrome: () -> Unit,
+    onAutoReadingFinished: () -> Unit,
 ) {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -209,6 +212,7 @@ private fun TextReaderContent(
     val infoCallback by rememberUpdatedState(onInfo)
     val searchCallback by rememberUpdatedState(onSearchResults)
     val chromeCallback by rememberUpdatedState(onToggleChrome)
+    val finishedCallback by rememberUpdatedState(onAutoReadingFinished)
     val pendingSeek = remember { mutableStateOf<ReadingPosition?>(null) }
     val anchorViewport = remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
@@ -346,20 +350,22 @@ private fun TextReaderContent(
         if (!autoReading) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             if (settings.readingMode == ReadingMode.PAGE) {
-                while (isActive && pager.currentPage < pagination.size - 1) {
+                while (isActive && (pager.settledPage < pagination.size - 1 || pager.isScrollInProgress)) {
                     delay(settings.autoPageSeconds.coerceAtLeast(1) * 1000L)
                     turn(true)
                 }
             } else {
                 val pixelsPerSecond = with(density) { settings.autoScrollDpPerSecond.dp.toPx() }
                 var lastFrame = withFrameNanos { it }
-                while (isActive && list.canScrollForward) {
+                while (isActive && (list.canScrollForward || list.isScrollInProgress)) {
                     val frame = withFrameNanos { it }
                     val seconds = ((frame - lastFrame) / 1_000_000_000f).coerceAtMost(0.1f)
                     runReaderScroll { list.scrollBy(pixelsPerSecond * seconds) }
                     lastFrame = frame
                 }
             }
+            currentCoroutineContext().ensureActive()
+            finishedCallback()
         }
     }
 

@@ -54,6 +54,7 @@ import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.navigator.input.InputListener
 import org.readium.r2.navigator.input.TapEvent
 import org.readium.r2.navigator.preferences.Axis
+import org.readium.r2.navigator.preferences.ReadingProgression
 import org.readium.r2.shared.publication.Layout
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
@@ -88,6 +89,9 @@ class EpubHostFragment : Fragment() {
     private var errorView: TextView? = null
     private var noticeToast: Toast? = null
     private var searchJob: Job? = null
+    private var pageLocation: PageLocation? = null
+
+    private data class PageLocation(val index: Int, val total: Int, val locator: Locator)
 
     internal fun connect(value: EpubConnection) {
         connection.value = value
@@ -185,6 +189,11 @@ class EpubHostFragment : Fragment() {
 
                     override fun onExternalLinkActivated(url: AbsoluteUrl) {
                         showNotice("외부 링크는 오프라인에서 열 수 없습니다.")
+                    }
+                },
+                paginationListener = object : EpubNavigatorFragment.PaginationListener {
+                    override fun onPageChanged(pageIndex: Int, totalPages: Int, locator: Locator) {
+                        pageLocation = PageLocation(pageIndex, totalPages, locator)
                     }
                 },
                 configuration = EpubNavigatorFragment.Configuration {
@@ -408,7 +417,12 @@ class EpubHostFragment : Fragment() {
                 val frame = JSONObject(result)
                 reportAutoScroll(frame.getString("href"), frame.getDouble("progression"))
                 if (!frame.getBoolean("moved")) {
-                    if (!moveResource(navigator, book, forward = true, currentHref = latestLocator?.href ?: navigator.currentLocator.value.href)) break
+                    val href = latestLocator?.href ?: navigator.currentLocator.value.href
+                    if (isLastResource(book, href)) {
+                        connection.value?.onAutoReadingFinished()
+                        return
+                    }
+                    if (!moveResource(navigator, book, forward = true, currentHref = href)) break
                     delay(200)
                     lastTick = SystemClock.elapsedRealtime()
                 }
@@ -416,10 +430,34 @@ class EpubHostFragment : Fragment() {
         } else {
             while (currentCoroutineContext().isActive) {
                 delay(preferences.autoPageSeconds.coerceAtLeast(1) * 1000L)
-                navigator.goForward(animated = true)
+                if (book.metadata.layout == Layout.FIXED) {
+                    // Spread.NEVER keeps each fixed-layout resource on a separate screen.
+                    if (!navigator.goForward(animated = true) && isLastResource(book, navigator.currentLocator.value.href)) {
+                        connection.value?.onAutoReadingFinished()
+                        return
+                    }
+                } else {
+                    // Reflowable goForward() only reports whether a WebView exists, even at EOF.
+                    // Readium reports settled, loaded pages with a zero-based physical index.
+                    val page = pageLocation
+                    if (page != null) {
+                        val lastPage = if (navigator.settings.value.readingProgression == ReadingProgression.RTL) 0 else page.total - 1
+                        // In horizontal scrolling mode, Readium's page turns move whole resources.
+                        val atEndOfResource = navigator.overflow.value.scroll || page.index == lastPage
+                        if (page.locator == navigator.currentLocator.value && isLastResource(book, page.locator.href) && atEndOfResource) {
+                            connection.value?.onAutoReadingFinished()
+                            return
+                        }
+                    }
+                    navigator.goForward(animated = true)
+                }
             }
         }
     }
+
+    private fun isLastResource(book: Publication, href: Url): Boolean =
+        book.readingOrder.last().url().removeFragment().removeQuery()
+            .isEquivalent(href.removeFragment().removeQuery())
 
     private fun reportAutoScroll(resourceUrl: String, progression: Double) {
         // Readium emits locations after 100 ms of idle scrolling. Continuous automatic scrolling
@@ -459,6 +497,7 @@ class EpubHostFragment : Fragment() {
 
     override fun onDestroyView() {
         readyNavigator.value = null
+        pageLocation = null
         searchJob = null
         noticeToast?.cancel()
         noticeToast = null

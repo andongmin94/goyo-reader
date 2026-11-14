@@ -156,6 +156,7 @@ class TextReaderBehaviorTest {
                     onSearchResults = {},
                     onToggleChrome = {},
                     onError = { error = it },
+                    onAutoReadingFinished = {},
                     modifier = Modifier.size(320.dp, 520.dp).testTag("text-reader"),
                 )
             }

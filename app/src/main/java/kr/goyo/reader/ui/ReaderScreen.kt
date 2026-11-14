@@ -112,12 +112,13 @@ fun ReaderScreen(
         val reportResults: (List<SearchResult>) -> Unit = { searchResults = it; searching = false; searched = true }
         val toggle: () -> Unit = { chrome = !chrome }
         val fail: (String) -> Unit = { readError = it; auto = false; chrome = true }
+        val finishAutoReading = { auto = false }
         if (readError == null) {
             val viewport = Modifier.fillMaxSize().safeDrawingPadding().padding(bottom = 48.dp)
             when (book.kind) {
-                BookKind.TEXT -> TextReader(file, initialPosition, settings, commands, activeAuto, reportPosition, reportInfo, reportResults, toggle, fail, viewport)
-                BookKind.COMIC, BookKind.PDF -> VisualReader(file, book.kind, initialPosition, settings, commands, activeAuto, reportPosition, reportInfo, reportResults, toggle, fail, viewport)
-                BookKind.EPUB -> EpubReader(file, initialPosition, settings, commands, activeAuto, reportPosition, reportInfo, reportResults, toggle, fail, viewport)
+                BookKind.TEXT -> TextReader(file, initialPosition, settings, commands, activeAuto, reportPosition, reportInfo, reportResults, toggle, fail, finishAutoReading, viewport)
+                BookKind.COMIC, BookKind.PDF -> VisualReader(file, book.kind, initialPosition, settings, commands, activeAuto, reportPosition, reportInfo, reportResults, toggle, fail, finishAutoReading, viewport)
+                BookKind.EPUB -> EpubReader(file, initialPosition, settings, commands, activeAuto, reportPosition, reportInfo, reportResults, toggle, fail, finishAutoReading, viewport)
             }
         } else {
             Column(Modifier.align(Alignment.Center).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {

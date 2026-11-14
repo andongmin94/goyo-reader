@@ -55,7 +55,7 @@ class ReaderFlowTest {
         }
         val imported = runBlocking {
             repository.import(
-                ImportPlan(listOf(SourceDocument(Uri.fromFile(source), source.name, source.length(), BookKind.TEXT)), emptyList()),
+                ImportPlan(listOf(SourceDocument(Uri.fromFile(source), source.name, source.length(), BookKind.TEXT, "txt")), emptyList()),
             ) { _, _, _ -> }.single()
         }
 

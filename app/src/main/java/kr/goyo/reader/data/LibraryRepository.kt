@@ -28,6 +28,7 @@ import kr.goyo.reader.model.*
 import kotlin.coroutines.coroutineContext
 
 private val libraryJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+private val imageExtensions = setOf("jpg", "jpeg", "png", "webp")
 
 internal object LibrarySerializer : Serializer<LibraryState> {
     override val defaultValue = LibraryState()
@@ -41,7 +42,9 @@ internal object LibrarySerializer : Serializer<LibraryState> {
     }
 }
 
-data class SourceDocument(val uri: Uri, val name: String, val size: Long, val kind: BookKind)
+data class SourceDocument(val uri: Uri, val name: String, val size: Long, val kind: BookKind, val extension: String) {
+    val isImage get() = extension in imageExtensions
+}
 data class ImageGroup(val title: String, val files: List<SourceDocument>)
 data class ImportPlan(val documents: List<SourceDocument>, val imageGroups: List<ImageGroup>) {
     val bookCount get() = documents.size + imageGroups.size
@@ -63,7 +66,7 @@ class LibraryRepository(private val context: Context) {
 
     suspend fun planFiles(uris: List<Uri>): ImportPlan = withContext(Dispatchers.IO) {
         val sources = uris.map { source(it) }
-        if (sources.size > 1 && sources.all { isImage(it.name) }) {
+        if (sources.size > 1 && sources.all { it.isImage }) {
             ImportPlan(emptyList(), listOf(ImageGroup("이미지 모음 · ${sources.first().name.substringBeforeLast('.')}", sources)))
         } else ImportPlan(sources, emptyList())
     }
@@ -81,9 +84,10 @@ class LibraryRepository(private val context: Context) {
                 val name = child.name ?: continue
                 if (child.isDirectory) scan(child)
                 else {
-                    val kind = kindFor(name, child.type) ?: continue
-                    val source = SourceDocument(child.uri, name, child.length(), kind)
-                    if (isImage(name)) images += source else documents += source
+                    val mime = child.type
+                    val kind = kindFor(name, mime) ?: continue
+                    val source = SourceDocument(child.uri, name, child.length(), kind, storageExtension(name, kind, mime))
+                    if (source.isImage) images += source else documents += source
                 }
             }
             if (images.isNotEmpty()) imageGroups += ImageGroup(directory.name ?: "이미지 모음", images)
@@ -97,9 +101,8 @@ class LibraryRepository(private val context: Context) {
         for (source in plan.documents) {
             coroutineContext.ensureActive()
             onProgress(source.name, added.size, plan.bookCount)
-            val extension = storageExtension(source.name, source.kind)
             val id = UUID.randomUUID().toString()
-            val fileName = "$id.$extension"
+            val fileName = "$id.${source.extension}"
             val file = File(booksDirectory, fileName)
             val book = try {
                 copyUri(source.uri, file)
@@ -123,7 +126,7 @@ class LibraryRepository(private val context: Context) {
                     val ordered = group.files.sortedWith { left, right -> kr.goyo.reader.reader.visual.NaturalFileOrder.compare(left.name, right.name) }
                     ordered.forEachIndexed { index, image ->
                         coroutineContext.ensureActive()
-                        val name = "${index.toString().padStart(8, '0')}.${image.name.substringAfterLast('.').lowercase()}"
+                        val name = "${index.toString().padStart(8, '0')}.${image.extension}"
                         output.putNextEntry(ZipEntry(name))
                         context.contentResolver.openInputStream(image.uri)?.use { it.copyTo(output) }
                             ?: error("${image.name} 파일을 읽을 수 없습니다.")
@@ -209,22 +212,31 @@ class LibraryRepository(private val context: Context) {
                 if (si >= 0 && !cursor.isNull(si)) size = cursor.getLong(si)
             }
         }
-        val kind = kindFor(name, context.contentResolver.getType(uri))
+        val mime = context.contentResolver.getType(uri)
+        val kind = kindFor(name, mime)
             ?: error("$name: TXT, ZIP/CBZ, PDF, EPUB, JPG, PNG, WEBP 파일을 선택해 주세요.")
-        return SourceDocument(uri, name, size, kind)
+        return SourceDocument(uri, name, size, kind, storageExtension(name, kind, mime))
     }
 
     companion object {
-        fun storageExtension(name: String, kind: BookKind): String {
+        fun storageExtension(name: String, kind: BookKind, mime: String?): String {
             val extension = name.substringAfterLast('.', "").lowercase()
             return when (kind) {
                 BookKind.TEXT -> "txt"
                 BookKind.PDF -> "pdf"
                 BookKind.EPUB -> "epub"
-                BookKind.COMIC -> if (extension in setOf("jpg", "jpeg", "png", "webp")) extension else "cbz"
+                BookKind.COMIC -> when (extension) {
+                    in imageExtensions -> extension
+                    "zip", "cbz" -> "cbz"
+                    else -> when (mime) {
+                        "image/jpeg" -> "jpg"
+                        "image/png" -> "png"
+                        "image/webp" -> "webp"
+                        else -> "cbz"
+                    }
+                }
             }
         }
-        fun isImage(name: String) = name.substringAfterLast('.').lowercase() in setOf("jpg", "jpeg", "png", "webp")
         fun kindFor(name: String, mime: String? = null): BookKind? = when (name.substringAfterLast('.').lowercase()) {
             "txt", "text" -> BookKind.TEXT
             "zip", "cbz", "jpg", "jpeg", "png", "webp" -> BookKind.COMIC
@@ -235,6 +247,7 @@ class LibraryRepository(private val context: Context) {
                 "application/pdf" -> BookKind.PDF
                 "application/epub+zip" -> BookKind.EPUB
                 "application/zip", "application/vnd.comicbook+zip" -> BookKind.COMIC
+                "image/jpeg", "image/png", "image/webp" -> BookKind.COMIC
                 else -> null
             }
         }

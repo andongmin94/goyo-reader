@@ -98,6 +98,7 @@ fun VisualReader(
     onSearchResults: (List<SearchResult>) -> Unit,
     onToggleChrome: () -> Unit,
     onError: (String) -> Unit,
+    onAutoReadingFinished: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var source by remember(file, kind) { mutableStateOf<VisualPageSource?>(null) }
@@ -143,12 +144,12 @@ fun VisualReader(
                 if (settings.readingMode == ReadingMode.PAGE) {
                     PagedVisualReader(
                         loaded, currentPosition, settings, commands, autoReading,
-                        reportPosition, onInfo, onSearchResults, onToggleChrome, onError,
+                        reportPosition, onInfo, onSearchResults, onToggleChrome, onError, onAutoReadingFinished,
                     )
                 } else {
                     ScrolledVisualReader(
                         loaded, currentPosition, settings, commands, autoReading,
-                        reportPosition, onInfo, onSearchResults, onToggleChrome, onError,
+                        reportPosition, onInfo, onSearchResults, onToggleChrome, onError, onAutoReadingFinished,
                     )
                 }
             }
@@ -169,6 +170,7 @@ private fun PagedVisualReader(
     onSearchResults: (List<SearchResult>) -> Unit,
     onToggleChrome: () -> Unit,
     onError: (String) -> Unit,
+    onAutoReadingFinished: () -> Unit,
 ) {
     val count = source.dimensions.size
     val pager = rememberPagerState(initialPage = initialPosition.index.coerceIn(0, count - 1)) { count }
@@ -178,6 +180,7 @@ private fun PagedVisualReader(
     val positionCallback by rememberUpdatedState(onPosition)
     val infoCallback by rememberUpdatedState(onInfo)
     val searchCallback by rememberUpdatedState(onSearchResults)
+    val finishedCallback by rememberUpdatedState(onAutoReadingFinished)
     var zoomed by remember { mutableStateOf(false) }
 
     suspend fun changePage(delta: Int) {
@@ -213,7 +216,10 @@ private fun PagedVisualReader(
         if (autoReading) lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (isActive) {
                 delay(currentSettings.autoPageSeconds.coerceAtLeast(1) * 1000L)
-                if (pager.currentPage == count - 1) return@repeatOnLifecycle
+                if (pager.settledPage == count - 1 && !pager.isScrollInProgress) {
+                    finishedCallback()
+                    return@repeatOnLifecycle
+                }
                 if (!pager.isScrollInProgress && !zoomed) {
                     try {
                         changePage(1)
@@ -297,6 +303,7 @@ private fun ScrolledVisualReader(
     onSearchResults: (List<SearchResult>) -> Unit,
     onToggleChrome: () -> Unit,
     onError: (String) -> Unit,
+    onAutoReadingFinished: () -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize().clipToBounds()) {
         val density = LocalDensity.current
@@ -309,6 +316,7 @@ private fun ScrolledVisualReader(
         val positionCallback by rememberUpdatedState(onPosition)
         val infoCallback by rememberUpdatedState(onInfo)
         val searchCallback by rememberUpdatedState(onSearchResults)
+        val finishedCallback by rememberUpdatedState(onAutoReadingFinished)
         val currentSettings by rememberUpdatedState(settings)
         val zoom = remember { ViewportZoom() }
         var restored by remember(source, width, height) { mutableStateOf(false) }
@@ -376,7 +384,10 @@ private fun ScrolledVisualReader(
                     val now = withFrameNanos { it }
                     val seconds = ((now - lastFrame) / 1_000_000_000f).coerceIn(0f, 0.1f)
                     lastFrame = now
-                    if (!list.canScrollForward) return@repeatOnLifecycle
+                    if (!list.canScrollForward && !list.isScrollInProgress) {
+                        finishedCallback()
+                        return@repeatOnLifecycle
+                    }
                     if (!list.isScrollInProgress && zoom.scale <= 1.01f) {
                         val distance = currentSettings.autoScrollDpPerSecond * density.density * seconds
                         try {

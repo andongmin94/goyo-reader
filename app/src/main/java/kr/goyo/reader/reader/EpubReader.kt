@@ -31,6 +31,7 @@ fun EpubReader(
     onSearchResults: (List<SearchResult>) -> Unit,
     onToggleChrome: () -> Unit,
     onError: (String) -> Unit,
+    onAutoReadingFinished: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val positionCallback = rememberUpdatedState(onPosition)
@@ -38,6 +39,7 @@ fun EpubReader(
     val searchCallback = rememberUpdatedState(onSearchResults)
     val chromeCallback = rememberUpdatedState(onToggleChrome)
     val errorCallback = rememberUpdatedState(onError)
+    val finishedCallback = rememberUpdatedState(onAutoReadingFinished)
     val latestPosition = remember(file.absolutePath) { EpubPositionCache(initialPosition) }
 
     // Font declarations are navigator configuration, not preferences. Recreate only when the
@@ -56,6 +58,7 @@ fun EpubReader(
                 onSearchResults = { searchCallback.value(it) },
                 onToggleChrome = { chromeCallback.value() },
                 onError = { errorCallback.value(it) },
+                onAutoReadingFinished = { finishedCallback.value() },
             )
         }
         SideEffect {
@@ -89,4 +92,5 @@ internal class EpubConnection(
     val onSearchResults: (List<SearchResult>) -> Unit,
     val onToggleChrome: () -> Unit,
     val onError: (String) -> Unit,
+    val onAutoReadingFinished: () -> Unit,
 )

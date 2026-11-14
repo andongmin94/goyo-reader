@@ -115,6 +115,7 @@ class VisualReaderInteractionTest {
                     onSearchResults = {},
                     onToggleChrome = {},
                     onError = error::set,
+                    onAutoReadingFinished = {},
                     modifier = Modifier.fillMaxSize().testTag("visual-reader"),
                 )
             }
