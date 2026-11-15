@@ -85,7 +85,8 @@ class LibraryViewModel(application: Application, private val savedState: SavedSt
         repository.directories.retainReadAccess(uri)
         openUri(uri)
     } }
-    fun open(book: BookRecord) = openTask { repository.openRecord(book.copy(position = latestPositions[book.id] ?: book.position)) }
+    fun latestPosition(book: BookRecord): ReadingPosition = latestPositions[book.id] ?: book.position
+    fun open(book: BookRecord) = openTask { repository.openRecord(book.copy(position = latestPosition(book))) }
     fun readImages() {
         val path = browser.value.path
         val existing = library.value.books.firstOrNull { it.imageFolder && it.uri == path.lastOrNull()?.uri }
@@ -102,6 +103,8 @@ class LibraryViewModel(application: Application, private val savedState: SavedSt
                 val latest = latestPositions[prepared.book.id]
                 val opened = if (latest != null && prepared.input is ReaderInput.LocalFile)
                     prepared.copy(book = prepared.book.copy(position = latest)) else prepared
+                // A new explicit image selection supersedes the previous folder position.
+                latestPositions[opened.book.id] = opened.book.position
                 session.value = opened
                 savedState["openBookId"] = opened.book.id
                 positionChanges.value = opened.book.id to opened.book.position

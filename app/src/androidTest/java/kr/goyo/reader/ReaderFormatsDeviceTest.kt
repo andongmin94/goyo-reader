@@ -4,7 +4,10 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
@@ -43,6 +46,8 @@ class ReaderFormatsDeviceTest {
         compose.onNodeWithContentDescription("본문 검색").assertIsNotEnabled()
         compose.onNodeWithContentDescription("다음 쪽").performClick()
         waitImage("2쪽 · 2쪽", Color.BLUE)
+        compose.activityRule.scenario.recreate()
+        waitImage("2쪽 · 2쪽", Color.BLUE)
         screenshot("pdf-reader.png")
         compose.onNodeWithContentDescription("폴더로 돌아가기").performClick()
         waitText(pdf.name)
@@ -58,6 +63,13 @@ class ReaderFormatsDeviceTest {
         waitImage("1쪽 · 2.png", Color.RED)
         compose.onNodeWithContentDescription("다음 쪽").performClick()
         waitImage("2쪽 · 10.png", Color.BLUE)
+        compose.activityRule.scenario.recreate()
+        waitImage("2쪽 · 10.png", Color.BLUE)
+        compose.onNodeWithContentDescription("폴더로 돌아가기").performClick()
+        waitText("2.png")
+        // Explicitly selecting an earlier image must beat the previous resume position.
+        compose.onNodeWithText("2.png").performClick()
+        waitImage("1쪽 · 2.png", Color.RED)
         compose.onNodeWithContentDescription("폴더로 돌아가기").performClick()
         waitText("2.png")
         screenshot("directory.png")
@@ -80,6 +92,8 @@ class ReaderFormatsDeviceTest {
         waitImage("1쪽 · chapter/2.png", Color.RED)
         compose.onNodeWithContentDescription("다음 쪽").performClick()
         waitImage("2쪽 · chapter/10.png", Color.BLUE)
+        compose.activityRule.scenario.recreate()
+        waitImage("2쪽 · chapter/10.png", Color.BLUE)
         compose.onNodeWithText("2 / 2 쪽").assertIsDisplayed()
         assertTrue(file.isFile)
     }
@@ -87,7 +101,20 @@ class ReaderFormatsDeviceTest {
         val file = temporary.newFile("소설.txt").apply { writeText("한글 소설을 읽습니다.\n표적문장입니다.\n\n".repeat(80)) }
         browse()
         compose.onNodeWithText(file.name).performClick()
-        compose.waitUntil(10_000) { compose.onAllNodes(hasContentDescription("본문 검색") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+        waitForTextReader()
+        compose.onNodeWithContentDescription("다음 쪽").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("2 / ", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+        val before = compose.runOnIdle {
+            val model = ViewModelProvider(compose.activity)[LibraryViewModel::class.java]
+            model.latestPosition(requireNotNull(model.session.value).book)
+        }
+        assertTrue(before.index > 0)
+        compose.activityRule.scenario.recreate()
+        waitForTextReader()
+        compose.runOnIdle {
+            val model = ViewModelProvider(compose.activity)[LibraryViewModel::class.java]
+            assertEquals(before.index, model.latestPosition(requireNotNull(model.session.value).book).index)
+        }
         compose.onNodeWithContentDescription("본문 검색").performClick()
         compose.onNodeWithText("검색어").performTextReplacement("표적문장")
         compose.onNodeWithText("검색", substring = false).performClick()
@@ -104,11 +131,41 @@ class ReaderFormatsDeviceTest {
         waitText("다시 읽기")
         assertTrue(file.isFile)
     }
+    @Test fun pinchingAndPanningDoNotTurnTheImagePage() {
+        File(temporary.root, "1.png").writeBytes(image(Color.RED))
+        File(temporary.root, "2.png").writeBytes(image(Color.BLUE))
+        browse()
+        compose.onNodeWithText("1.png").performClick()
+        waitImage("1쪽 · 1.png", Color.RED)
+        compose.onRoot().performTouchInput {
+            val focus = center
+            down(0, focus - Offset(40f, 0f))
+            down(1, focus + Offset(40f, 0f))
+            for (step in 1..12) {
+                moveTo(0, focus - Offset(40f + 8f * step, 0f))
+                moveTo(1, focus + Offset(40f + 8f * step, 0f))
+            }
+            up(0)
+            up(1)
+        }
+        val pager = compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange))
+        pager.assert(SemanticsMatcher("Page swiping is disabled while zoomed") { !it.config.contains(SemanticsActions.ScrollBy) })
+        compose.onRoot().performTouchInput { swipeLeft() }
+        compose.onNodeWithText("1 / 2 쪽").assertIsDisplayed()
+        compose.onRoot().performTouchInput { doubleClick(center) }
+        pager.assert(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy))
+        compose.onRoot().performTouchInput { swipeLeft() }
+        waitImage("2쪽 · 2.png", Color.BLUE)
+        compose.onNodeWithText("2 / 2 쪽").assertIsDisplayed()
+    }
     private fun browse() {
         compose.waitUntil(10_000) { compose.onAllNodes(hasContentDescription("파일")).fetchSemanticsNodes().isNotEmpty() }
         compose.runOnIdle { ViewModelProvider(compose.activity)[LibraryViewModel::class.java].selectFolder(Uri.fromFile(temporary.root)) }
         compose.waitUntil(10_000) { !ViewModelProvider(compose.activity)[LibraryViewModel::class.java].browser.value.loading &&
             compose.onAllNodes(hasText(temporary.root.listFiles()!!.first().name)).fetchSemanticsNodes().isNotEmpty() }
+    }
+    private fun waitForTextReader() {
+        compose.waitUntil(10_000) { compose.onAllNodes(hasContentDescription("본문 검색") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
     }
     private fun waitText(value: String) {
         compose.waitUntil(10_000) { compose.onAllNodes(hasText(value)).fetchSemanticsNodes().isNotEmpty() }
