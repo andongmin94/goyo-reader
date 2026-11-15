@@ -4,13 +4,10 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 enum class BookKind { TEXT, COMIC, PDF, EPUB }
-
 @Serializable
 enum class ReadingMode { PAGE, SCROLL }
-
 @Serializable
 enum class ReaderFont { SYSTEM, SERIF, MONOSPACE, CUSTOM }
-
 @Serializable
 enum class TapLayout { EDGES, LEFT_HANDED, ANYWHERE_NEXT }
 
@@ -21,8 +18,8 @@ data class ReaderSettings(
     val marginDp: Float = 24f,
     val font: ReaderFont = ReaderFont.SYSTEM,
     val customFontPath: String? = null,
-    val backgroundColor: Long = 0xFFF6F2E9,
-    val textColor: Long = 0xFF262A27,
+    val backgroundColor: Long = 0xFFFFFFFF,
+    val textColor: Long = 0xFF202124,
     val readingMode: ReadingMode = ReadingMode.PAGE,
     val rightToLeft: Boolean = false,
     val volumePaging: Boolean = true,
@@ -36,8 +33,8 @@ data class ReaderSettings(
     val textEncoding: String = "AUTO",
 )
 
-/** index is a UTF-16 character offset for TXT, a zero-based page for images/PDF.
- * EPUB uses Readium's serialized Locator. offset is the viewport's within-item fraction. */
+/** TXT: UTF-16 offset. Images/PDF: zero-based page + within-page fraction.
+ * EPUB: Readium Locator. An image folder uses locator for the current image URI. */
 @Serializable
 data class ReadingPosition(
     val index: Int = 0,
@@ -47,15 +44,21 @@ data class ReadingPosition(
 )
 
 @Serializable
+data class FolderLocation(val uri: String, val name: String)
+
+/** A reference to an original document, not an imported library copy. */
+@Serializable
 data class BookRecord(
     val id: String,
     val title: String,
-    val fileName: String,
+    val uri: String,
     val kind: BookKind,
     val sizeBytes: Long,
     val addedAt: Long,
     val lastOpenedAt: Long = 0,
     val position: ReadingPosition = ReadingPosition(),
+    val folderPath: List<FolderLocation> = emptyList(),
+    val imageFolder: Boolean = false,
 )
 
 @Serializable
@@ -72,12 +75,12 @@ data class LibraryState(
     val books: List<BookRecord> = emptyList(),
     val bookmarks: List<Bookmark> = emptyList(),
     val settings: ReaderSettings = ReaderSettings(),
+    val folderPath: List<FolderLocation> = emptyList(),
+    val favoritePaths: List<List<FolderLocation>> = emptyList(),
 )
 
 data class SearchResult(val title: String, val excerpt: String, val position: ReadingPosition)
-
 data class OutlineEntry(val title: String, val position: ReadingPosition, val depth: Int = 0)
-
 data class ReaderInfo(
     val current: Int = 1,
     val total: Int = 1,
@@ -90,7 +93,6 @@ sealed interface ReaderCommand {
     data object Previous : ReaderCommand
     data class Seek(val position: ReadingPosition) : ReaderCommand
     data class SeekProgress(val progress: Float) : ReaderCommand
-    /** One-based page (TXT/images/PDF), or Readium position (EPUB). */
     data class SeekPage(val page: Int) : ReaderCommand
     data class Search(val query: String) : ReaderCommand
 }

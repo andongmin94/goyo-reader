@@ -12,8 +12,8 @@ android {
         applicationId = "kr.goyo.reader"
         minSdk = 26
         targetSdk = 37
-        versionCode = 5
-        versionName = "0.2.0"
+        versionCode = 6
+        versionName = "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
@@ -45,6 +45,10 @@ android {
 
 kotlin { compilerOptions { jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17 } }
 
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    testLogging { events("started", "passed", "failed", "skipped") }
+}
+
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     implementation("androidx.activity:activity-compose:1.13.0")
@@ -58,7 +62,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
     implementation("androidx.fragment:fragment-compose:1.9.0")
     implementation("androidx.datastore:datastore:1.2.1")
-    implementation("androidx.documentfile:documentfile:1.1.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("org.readium.kotlin-toolkit:readium-shared:3.4.0")
@@ -73,5 +76,6 @@ dependencies {
     testImplementation("androidx.compose.ui:ui-test-junit4:1.12.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.12.0")
 }

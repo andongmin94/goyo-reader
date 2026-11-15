@@ -1,28 +1,35 @@
 package kr.goyo.reader.ui
 
-import androidx.compose.material3.*
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
-
-private val MinViewerColors = lightColorScheme(
-    primary = Color(0xFF496A58), onPrimary = Color.White,
-    primaryContainer = Color(0xFFDCE8DC), onPrimaryContainer = Color(0xFF213A2B),
-    secondary = Color(0xFF8C6954), secondaryContainer = Color(0xFFF0E1D5),
-    background = Color(0xFFF6F2E9), surface = Color(0xFFFCFAF5),
-    surfaceVariant = Color(0xFFECE9DF), onSurface = Color(0xFF262A27),
-    onSurfaceVariant = Color(0xFF676B63), outlineVariant = Color(0xFFDADDD2),
-)
+import java.util.Locale
 
 @Composable
 fun MinViewerTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = MinViewerColors, typography = Typography().let {
-        it.copy(headlineLarge = it.headlineLarge.copy(fontFamily = FontFamily.Serif), headlineMedium = it.headlineMedium.copy(fontFamily = FontFamily.Serif))
-    }, content = content)
+    val colors = if (isSystemInDarkTheme()) darkColorScheme(
+        primary = Color(0xFF7190FF), onPrimary = Color(0xFF06164B),
+        primaryContainer = Color(0xFF162653), onPrimaryContainer = Color(0xFFDCE5FF),
+        background = Color(0xFF151619), surface = Color(0xFF1E2024),
+        onBackground = Color(0xFFF4F5F7), onSurface = Color(0xFFF4F5F7),
+        onSurfaceVariant = Color(0xFFA7ABB4), outlineVariant = Color(0xFF353840),
+    ) else lightColorScheme(
+        primary = Color(0xFF0035FF), onPrimary = Color.White,
+        primaryContainer = Color(0xFFEDF1FF), onPrimaryContainer = Color(0xFF0035FF),
+        background = Color.White, surface = Color.White,
+        onBackground = Color(0xFF202124), onSurface = Color(0xFF202124),
+        onSurfaceVariant = Color(0xFF696F7A), outlineVariant = Color(0xFFE4E6EB),
+        surfaceVariant = Color(0xFFF5F6F8), surfaceTint = Color.Transparent,
+    )
+    MaterialTheme(colorScheme = colors, content = content)
 }
 
 fun humanSize(bytes: Long): String = when {
-    bytes >= 1024L * 1024 * 1024 -> "%.1f GB".format(bytes / (1024.0 * 1024 * 1024))
-    bytes >= 1024L * 1024 -> "%.1f MB".format(bytes / (1024.0 * 1024))
-    else -> "%.0f KB".format(bytes / 1024.0)
+    bytes >= 1024L * 1024 * 1024 -> String.format(Locale.ROOT, "%.1f GB", bytes / (1024.0 * 1024 * 1024))
+    bytes >= 1024L * 1024 -> String.format(Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024))
+    bytes >= 1024 -> String.format(Locale.ROOT, "%.0f KB", bytes / 1024.0)
+    else -> "$bytes B"
 }
