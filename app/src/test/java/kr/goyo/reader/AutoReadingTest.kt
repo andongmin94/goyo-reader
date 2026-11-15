@@ -26,7 +26,7 @@ import org.robolectric.annotation.LooperMode
 class AutoReadingTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     @get:Rule val temporary = TemporaryFolder()
-    @Test fun textPagesFinishAutomaticReadingAtTheEnd() = checkCompletion(BookKind.TEXT, ReadingMode.PAGE)
+    @Test(timeout = 60_000) fun textPagesFinishAutomaticReadingAtTheEnd() = checkCompletion(BookKind.TEXT, ReadingMode.PAGE)
     @Test fun textScrollFinishesAutomaticReadingAtTheEnd() = checkCompletion(BookKind.TEXT, ReadingMode.SCROLL)
     @Test fun comicPagesFinishAutomaticReadingAtTheEnd() = checkCompletion(BookKind.COMIC, ReadingMode.PAGE)
     @Test fun comicScrollFinishesAutomaticReadingAtTheEnd() = checkCompletion(BookKind.COMIC, ReadingMode.SCROLL)
@@ -54,21 +54,22 @@ class AutoReadingTest {
         }
         compose.waitForIdle()
         compose.mainClock.autoAdvance = false
-        compose.onNodeWithContentDescription("자동 읽기 시작").performClick()
-        compose.mainClock.advanceTimeBy(1_250)
-        compose.waitForIdle()
-        compose.onNodeWithContentDescription("자동 읽기 정지").assertDoesNotExist()
-        compose.onNodeWithContentDescription("읽기 도구 열기").performClick()
-        compose.mainClock.advanceTimeByFrame()
-        compose.onNodeWithContentDescription("자동 읽기 시작").assertIsDisplayed()
-        compose.onNodeWithContentDescription("이전 쪽").performClick()
-        compose.mainClock.advanceTimeBy(600)
-        compose.waitForIdle()
-        compose.onNodeWithContentDescription("자동 읽기 시작").performClick()
-        compose.mainClock.advanceTimeByFrame()
-        compose.onNodeWithContentDescription("자동 읽기 정지").assertIsDisplayed().performClick()
-        compose.mainClock.advanceTimeByFrame()
-        compose.mainClock.autoAdvance = true
+        try {
+            compose.onNodeWithContentDescription("자동 읽기 시작").performClick()
+            compose.mainClock.advanceTimeBy(1_250)
+            compose.waitForIdle()
+            compose.onNodeWithContentDescription("자동 읽기 정지").assertDoesNotExist()
+            compose.onNodeWithContentDescription("읽기 도구 열기").performClick()
+            compose.mainClock.advanceTimeByFrame()
+            compose.onNodeWithContentDescription("자동 읽기 시작").assertIsDisplayed()
+            compose.onNodeWithContentDescription("이전 쪽").performClick()
+            compose.mainClock.advanceTimeBy(600)
+            compose.waitForIdle()
+            compose.onNodeWithContentDescription("자동 읽기 시작").performClick()
+            compose.mainClock.advanceTimeByFrame()
+            compose.onNodeWithContentDescription("자동 읽기 정지").assertIsDisplayed().performClick()
+            compose.mainClock.advanceTimeByFrame()
+        } finally { compose.mainClock.autoAdvance = true }
     }
     private fun comicFixture(): File {
         val file = temporary.newFile("automatic-reading.cbz")
@@ -85,4 +86,3 @@ class AutoReadingTest {
         } finally { bitmap.recycle() }
         return file
     }
-}
