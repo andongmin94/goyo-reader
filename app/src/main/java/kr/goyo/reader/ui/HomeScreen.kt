@@ -1,5 +1,7 @@
 package kr.goyo.reader.ui
 
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,7 +15,10 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -24,7 +29,14 @@ import kr.goyo.reader.model.BookRecord
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun HomeScreen(books: List<BookRecord>, onOpen: (BookRecord) -> Unit, onImport: () -> Unit, onSettings: () -> Unit, onRemove: (BookRecord) -> Unit) {
+fun HomeScreen(
+    books: List<BookRecord>,
+    loadCover: suspend (BookRecord) -> Bitmap?,
+    onOpen: (BookRecord) -> Unit,
+    onImport: () -> Unit,
+    onSettings: () -> Unit,
+    onRemove: (BookRecord) -> Unit,
+) {
     var query by rememberSaveable { mutableStateOf("") }
     var kind by rememberSaveable { mutableStateOf<BookKind?>(null) }
     var sortByTitle by rememberSaveable { mutableStateOf(false) }
@@ -86,7 +98,7 @@ fun HomeScreen(books: List<BookRecord>, onOpen: (BookRecord) -> Unit, onImport: 
                 }
                 if (visible.isEmpty()) item { Text("조건에 맞는 책이 없습니다.", Modifier.padding(vertical = 24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 items(visible, key = { it.id }) { book ->
-                    BookCard(book, onClick = { onOpen(book) }, onRemove = { remove = book })
+                    BookCard(book, loadCover, onClick = { onOpen(book) }, onRemove = { remove = book })
                 }
             }
         }
@@ -97,20 +109,31 @@ fun HomeScreen(books: List<BookRecord>, onOpen: (BookRecord) -> Unit, onImport: 
 }
 
 @Composable
-private fun BookCard(book: BookRecord, onClick: () -> Unit, onRemove: () -> Unit) {
+private fun BookCard(book: BookRecord, loadCover: suspend (BookRecord) -> Bitmap?, onClick: () -> Unit, onRemove: () -> Unit) {
+    val cover by produceState<Bitmap?>(null, book.id) { value = loadCover(book) }
     val color = when (book.kind) { BookKind.TEXT -> Color(0xFF496A58); BookKind.COMIC -> Color(0xFF92654D); BookKind.PDF -> Color(0xFF696F89); BookKind.EPUB -> Color(0xFF7D6B46) }
+    val format = when (book.kind) { BookKind.TEXT -> "TXT"; BookKind.COMIC -> "COMIC"; else -> book.kind.name }
+    val coverShape = RoundedCornerShape(topStart = 3.dp, topEnd = 10.dp, bottomEnd = 10.dp, bottomStart = 3.dp)
     Card(onClick, Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(60.dp, 80.dp).background(color, RoundedCornerShape(topStart = 3.dp, topEnd = 10.dp, bottomEnd = 10.dp, bottomStart = 3.dp)), contentAlignment = Alignment.Center) {
-                Text(when (book.kind) { BookKind.TEXT -> "TXT"; BookKind.COMIC -> "COMIC"; else -> book.kind.name }, color = Color.White, style = MaterialTheme.typography.labelMedium)
+            Box(Modifier.size(72.dp, 96.dp).clip(coverShape).background(color), contentAlignment = Alignment.Center) {
+                val bitmap = cover
+                if (bitmap != null) Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "${book.title} 표지 미리보기",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit,
+                ) else Text(format, color = Color.White, style = MaterialTheme.typography.labelMedium)
             }
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(book.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(8.dp))
-                Text(if (book.lastOpenedAt == 0L) "아직 펼치지 않은 책 · ${humanSize(book.sizeBytes)}" else "${(book.position.progress * 100).toInt()}% 읽음 · ${humanSize(book.sizeBytes)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(6.dp))
+                Text("$format · ${humanSize(book.sizeBytes)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(2.dp))
+                Text(if (book.lastOpenedAt == 0L) "아직 펼치지 않은 책" else "${(book.position.progress * 100).toInt()}% 읽음", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (book.lastOpenedAt > 0) {
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(6.dp))
                     LinearProgressIndicator(progress = { book.position.progress.coerceIn(0f, 1f) }, Modifier.fillMaxWidth().height(3.dp), color = color, trackColor = color.copy(alpha = 0.12f))
                 }
             }

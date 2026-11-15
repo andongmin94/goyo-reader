@@ -4,11 +4,28 @@
 
 [GitHub: andongmin94/min-viewer](https://github.com/andongmin94/min-viewer)
 
-## 현재 상태 · 0.1.3
+## 현재 상태 · 0.2.0
 
-- 앱 표시 이름은 **민뷰어**, 영문 이름은 **Min Viewer**, 저장소 이름은 **min-viewer**입니다. 설치 화면·서재·프로젝트 이름을 함께 반영했습니다.
-- 확장자가 없는 JPEG·PNG·WEBP도 파일 제공자의 MIME 형식으로 인식합니다. 개별 파일 열기, 여러 이미지 묶기, 이미지 폴더 가져오기에 동일하게 적용하며, 저장할 때 읽기 엔진이 인식하는 확장자를 붙입니다.
-- 자동 읽기가 책 끝에 도달하면 재생 상태도 종료합니다. 앞쪽으로 이동한 뒤 다시 시작할 수 있습니다. TXT·이미지·PDF의 페이지/스크롤과 EPUB에 종료 처리를 연결했습니다.
+- 서재에서 **실제 표지 미리보기**를 표시합니다. 이미지·ZIP/CBZ는 숫자 파일명 순서의 첫 장, PDF는 첫 페이지, EPUB은 책에 포함된 표지를 사용합니다.
+- 긴 만화 이미지는 상단을 잘라 보여 주며, PDF·EPUB 표지는 전체 비율을 유지합니다. TXT나 표지 없는 책은 형식 타일을 표시합니다.
+- 미리보기는 화면 작업과 분리해 생성하고 최대 240×320픽셀로 저장합니다. 이미지·PDF는 표지에 필요한 첫 페이지의 정보만 읽습니다. 다시 서재로 돌아오면 저장된 표지를 사용하고, 책을 삭제하면 표지도 함께 지웁니다.
+- APK는 [GitHub Releases](https://github.com/andongmin94/min-viewer/releases)에서 배포합니다. `min-viewer-0.2.0.apk`가 설치 파일입니다.
+
+## 화면 미리보기
+
+실제 앱을 실행해 직접 만든 샘플 책을 가져온 화면입니다. Robolectric의 Android 그래픽 렌더링 결과이며, 물리 기기 캡처는 아닙니다.
+
+| 표지가 보이는 서재 | 만화 읽기 |
+| --- | --- |
+| <img src="docs/screenshots/library.png" alt="민뷰어 서재의 실제 표지 미리보기" width="300"> | <img src="docs/screenshots/comic-reader.png" alt="민뷰어 만화 읽기 화면" width="300"> |
+
+## APK 설치
+
+1. [Releases](https://github.com/andongmin94/min-viewer/releases)의 **Assets**에서 `.apk`를 받습니다. 자동 생성되는 Source code 압축파일은 설치 파일이 아닙니다.
+2. Android 8.0 이상 기기에서 APK를 열고, Android가 요청하면 해당 파일을 연 앱의 설치 권한을 허용합니다.
+3. 책 가져오기에서 TXT·이미지·ZIP/CBZ·PDF·EPUB 파일이나 폴더를 선택합니다.
+
+**0.2.0은 새 릴리스 서명키를 사용합니다.** 이전 0.1.3 이하 개발용 APK와 서명이 달라 덮어쓰기 업데이트는 되지 않습니다. 기존 앱을 삭제하면 서재 사본·책갈피·읽던 위치·설정도 삭제되므로, 기존 독서 데이터가 필요하면 이전 설치본을 지우지 마세요. 원본 책 파일은 앱 바깥에 따로 남아 있습니다. 0.2.0부터는 보관된 동일한 릴리스 키로 업데이트를 배포합니다.
 
 ## 읽을 수 있는 파일
 
@@ -65,9 +82,18 @@ Windows에서는 `gradlew.bat`를 사용합니다. 설치할 파일은 `app/buil
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-다른 환경에서 새로 빌드한 APK로 기존 앱을 업데이트하려면 같은 서명 키를 사용해야 합니다. 전달받은 개발용 APK의 키와 로컬 Android Studio의 기본 디버그 키는 서로 다를 수 있습니다. 계속 사용할 APK는 Android Studio의 **Generate Signed App Bundle or APK**로 본인 키를 만들어 빌드하고 그 키를 보관하세요.
+### 릴리스 빌드
 
-이번에 전달하는 `min-viewer-debug.apk`는 0.1.3이며, 직전 APK와 앱 ID·서명이 같고 버전 코드는 4입니다. 기존 앱을 삭제하지 않고 업데이트 설치할 수 있습니다.
+릴리스 서명키와 비밀번호는 저장소에 넣지 않습니다. `min-viewer` 별칭의 PKCS12 키를 아래 환경변수로 지정한 뒤 빌드합니다.
+
+```bash
+export MIN_VIEWER_KEYSTORE_FILE="/absolute/path/min-viewer-release.p12"
+read -r -s -p "Keystore password: " MIN_VIEWER_KEYSTORE_PASSWORD
+export MIN_VIEWER_KEYSTORE_PASSWORD
+./gradlew :app:assembleRelease
+```
+
+결과는 `app/build/outputs/apk/release/app-release.apk`입니다. 서명 설정이 없으면 릴리스 빌드는 실패합니다. 배포한 앱을 업데이트하려면 반드시 기존 릴리스와 같은 키를 사용해야 합니다. 디버그 APK는 개발 환경의 별도 키를 사용합니다.
 
 Android 설치 식별자는 `kr.goyo.reader`이며, 앱 표시 이름과 별도로 관리합니다.
 
@@ -89,11 +115,21 @@ app/src/main/java/kr/goyo/reader/
 
 단위·Robolectric 테스트는 한글 인코딩, 이모지/문자 위치, 실제 `StaticLayout` 페이지 크기, 자연 정렬·이미지 분할, 서재 직렬화·원본 보존, 중복 파일명 가져오기, 실제 EPUB 목차·검색·Locator를 확인합니다.
 
-0.1.3 이름 변경 검증 결과:
+0.2.0 검증 결과: 관련 JVM·Robolectric 검사 **15개 통과**, 릴리스 APK와 Android 기기용 테스트 APK 빌드 성공, 린트 **오류 0개·경고 4개**입니다. Android 기기용 픽셀 검사 2개는 컴파일만 확인했으며 실제 기기에서 실행하지 않았습니다. 변경 범위의 검사 명령은 아래와 같습니다.
 
-- 기존 `ReaderFlowTest` 1개가 통과했습니다. 새 Application·화면 이름으로 앱을 실행해 TXT 가져오기, 페이지·진행률·볼륨키 이동, 책갈피 저장과 이어 읽기를 확인했습니다.
-- `assembleDebug`가 통과했습니다. 생성된 APK의 앱 라벨이 **민뷰어**, 버전이 **0.1.3 / 4**인 것을 확인했습니다.
-- APK의 v2 서명이 유효하고 직전 APK와 서명 인증서가 같습니다. 최소 SDK 26과 `INTERNET` 권한이 없는 것도 APK에서 확인했습니다.
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests kr.goyo.reader.BookCoverCacheTest \
+  --tests kr.goyo.reader.LibraryPreviewTest \
+  --tests kr.goyo.reader.LibraryRepositoryTest \
+  --tests kr.goyo.reader.ReaderFlowTest
+./gradlew :app:assembleRelease :app:lintRelease :app:assembleDebugAndroidTest
+```
+
+- JVM에서는 실제 PNG·CBZ·EPUB의 첫 이미지·표지, 크기 제한, 디스크 캐시 재사용·삭제, 뒤쪽 이미지가 손상된 CBZ의 첫 표지를 확인합니다.
+- 실제 앱에서 이미지 책 가져오기 → 서재 표지 표시 → 책 열기 → 다음 페이지 이동을 확인하며 `app/build/outputs/screenshots/`에 화면을 저장합니다.
+- 기존 서재의 원본 보존·직렬화, TXT 책갈피·이어 읽기 흐름을 함께 확인합니다.
+- PDF 첫 페이지와 긴 이미지 상단의 실제 픽셀은 `BookCoverRenderingTest`의 Android 기기용 검사 2개로 분리했습니다. Robolectric 4.16.1은 해당 네이티브 PDF·영역 디코더를 구현하지 않습니다. 기기나 에뮬레이터를 연결한 뒤 `./gradlew :app:connectedDebugAndroidTest`로 실행할 수 있습니다. 이번 작업에서는 연결된 기기가 없어 이 두 검사의 실제 실행은 하지 않았습니다.
 
 EPUB 자동 읽기의 종료 판단은 Readium 3.4.0의 페이지 콜백·읽기 방향·고정 레이아웃 동작을 기준으로 코드 검토와 빌드를 확인했습니다. WebView에서의 실제 EPUB 표시·자동 읽기·검색 중 백그라운드 전환, 휴대전화의 제스처·볼륨키·밤 밝기·사용자 글꼴은 실기기 검증이 남아 있습니다. JVM/Robolectric 테스트는 물리 기기의 렌더링·메모리 검증을 대신하지 않습니다.
 

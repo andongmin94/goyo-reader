@@ -45,7 +45,7 @@ fun MinViewerApp(model: LibraryViewModel, activity: MainActivity) {
                         onPosition = { model.reportPosition(book.id, it) },
                         onBookmark = { title, position -> model.addBookmark(book, title, position) },
                         onDeleteBookmark = model::deleteBookmark)
-                } else HomeScreen(library.books, model::open, { importSheet = true }, { settings = true }, model::removeBook)
+                } else HomeScreen(library.books, model.repository::coverFor, model::open, { importSheet = true }, { settings = true }, model::removeBook)
             }
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (book != null) 176.dp else 12.dp))
         }

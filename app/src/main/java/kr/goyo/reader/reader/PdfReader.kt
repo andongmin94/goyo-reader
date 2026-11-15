@@ -13,7 +13,7 @@ import kr.goyo.reader.reader.visual.PageDimensions
 import kr.goyo.reader.reader.visual.VisualPageSource
 
 /** PdfRenderer owns its seekable file descriptor and serializes access to individual pages. */
-class PdfPageSource(file: File) : VisualPageSource {
+class PdfPageSource(file: File, firstPageOnly: Boolean = false) : VisualPageSource {
     private val lock = Any()
     private val renderer: PdfRenderer
     private var closed = false
@@ -30,10 +30,11 @@ class PdfPageSource(file: File) : VisualPageSource {
         }
         try {
             require(renderer.pageCount > 0) { "PDF에 읽을 페이지가 없습니다." }
-            dimensions = List(renderer.pageCount) { index ->
+            val pageCount = if (firstPageOnly) 1 else renderer.pageCount
+            dimensions = List(pageCount) { index ->
                 renderer.openPage(index).use { page -> PageDimensions(page.width, page.height) }
             }
-            labels = List(renderer.pageCount) { "${it + 1}쪽" }
+            labels = List(pageCount) { "${it + 1}쪽" }
         } catch (error: Throwable) {
             renderer.close()
             throw error

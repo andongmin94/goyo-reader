@@ -12,8 +12,8 @@ android {
         applicationId = "kr.goyo.reader"
         minSdk = 26
         targetSdk = 37
-        versionCode = 4
-        versionName = "0.1.3"
+        versionCode = 5
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
@@ -22,8 +22,17 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
         isCoreLibraryDesugaringEnabled = true
     }
+    signingConfigs {
+        create("release") {
+            storeFile = providers.environmentVariable("MIN_VIEWER_KEYSTORE_FILE").orNull?.let { file(it) }
+            storePassword = providers.environmentVariable("MIN_VIEWER_KEYSTORE_PASSWORD").orNull
+            keyAlias = "min-viewer"
+            keyPassword = storePassword
+        }
+    }
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }

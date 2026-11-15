@@ -18,7 +18,7 @@ interface VisualPageSource : Closeable {
     fun render(page: Int, width: Int, top: Float = 0f, bottom: Float = 1f): Bitmap
 }
 
-class ImagePageSource(private val file: File) : VisualPageSource {
+class ImagePageSource(private val file: File, firstPageOnly: Boolean = false) : VisualPageSource {
     private val lock = Any()
     private val archive: ZipFile? = if (file.extension.lowercase() in setOf("zip", "cbz")) {
         // UTF-8-flagged ZIP names stay UTF-8; old unflagged Korean ZIP names use MS949.
@@ -39,8 +39,10 @@ class ImagePageSource(private val file: File) : VisualPageSource {
                         entry.name.substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
                 }
                 ?.map { it.name }
-                ?.sortedWith(NaturalFileOrder)
-                ?.toList()
+                ?.let { names ->
+                    if (firstPageOnly) listOfNotNull(names.minWithOrNull(NaturalFileOrder))
+                    else names.sortedWith(NaturalFileOrder).toList()
+                }
                 ?: listOf(file.name)
             require(labels.isNotEmpty()) { "압축파일 안에 JPG, PNG 또는 WebP 이미지가 없습니다." }
             dimensions = labels.indices.map { page ->

@@ -1,6 +1,7 @@
 package kr.goyo.reader.data
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.datastore.core.CorruptionException
@@ -61,8 +62,11 @@ class LibraryRepository(private val context: Context) {
     val state = store.data
     private val booksDirectory = File(context.filesDir, "books").apply { mkdirs() }
     private val fontsDirectory = File(context.filesDir, "fonts").apply { mkdirs() }
+    private val covers = BookCoverCache(context)
 
     fun fileFor(book: BookRecord) = File(booksDirectory, book.fileName)
+
+    suspend fun coverFor(book: BookRecord): Bitmap? = covers.coverFor(book, fileFor(book))
 
     suspend fun planFiles(uris: List<Uri>): ImportPlan = withContext(Dispatchers.IO) {
         val sources = uris.map { source(it) }
@@ -177,6 +181,7 @@ class LibraryRepository(private val context: Context) {
     suspend fun removeBook(book: BookRecord) = withContext(Dispatchers.IO) {
         store.updateData { it.copy(books = it.books.filterNot { b -> b.id == book.id }, bookmarks = it.bookmarks.filterNot { b -> b.bookId == book.id }) }
         fileFor(book).delete()
+        covers.remove(book.id)
         Unit
     }
 
