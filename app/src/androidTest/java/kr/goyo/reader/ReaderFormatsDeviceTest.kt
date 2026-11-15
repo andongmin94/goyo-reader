@@ -92,10 +92,13 @@ class ReaderFormatsDeviceTest {
         compose.onNodeWithText("검색어").performTextReplacement("표적문장")
         compose.onNodeWithText("검색", substring = false).performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(hasText("검색 결과 80개")).fetchSemanticsNodes().isNotEmpty() }
+        // Android consumes Back for the IME first. Close it before dismissing the sheet.
+        Espresso.closeSoftKeyboard()
         Espresso.pressBack()
-        compose.waitForIdle()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("본문에서 찾기")).fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithText("검색어").assertDoesNotExist()
         compose.onNodeWithContentDescription("책갈피 추가").performClick()
-        compose.onNode(hasSetTextAction()).performTextReplacement("다시 읽기")
+        compose.onNodeWithText("책갈피 이름").performTextReplacement("다시 읽기")
         compose.onNodeWithText("저장").performClick()
         compose.onNodeWithContentDescription("책갈피 목록").performClick()
         waitText("다시 읽기")
