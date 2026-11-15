@@ -45,6 +45,10 @@ android {
 
 kotlin { compilerOptions { jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17 } }
 
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    testLogging { events("started", "passed", "failed", "skipped") }
+}
+
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     implementation("androidx.activity:activity-compose:1.13.0")

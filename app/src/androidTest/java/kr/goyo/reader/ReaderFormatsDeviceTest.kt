@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
+import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
@@ -91,7 +92,7 @@ class ReaderFormatsDeviceTest {
         compose.onNodeWithText("검색어").performTextReplacement("표적문장")
         compose.onNodeWithText("검색", substring = false).performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(hasText("검색 결과 80개")).fetchSemanticsNodes().isNotEmpty() }
-        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        Espresso.pressBack()
         compose.waitForIdle()
         compose.onNodeWithContentDescription("책갈피 추가").performClick()
         compose.onNode(hasSetTextAction()).performTextReplacement("다시 읽기")

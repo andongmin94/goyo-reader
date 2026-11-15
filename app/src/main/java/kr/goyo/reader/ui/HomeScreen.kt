@@ -84,7 +84,7 @@ fun HomeScreen(
                 Text("MIN VIEWER", fontFamily = FontFamily.Monospace, fontSize = 9.sp, letterSpacing = 1.5.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            HardwareKey(Icons.Outlined.FolderOpen, "폴더 선택", onFolder, primary = true)
+            HardwareKey(Icons.Outlined.FolderOpen, "폴더 선택", { tab = "files"; onFolder() }, primary = true)
             HardwareKey(Icons.Outlined.Tune, "독서 설정", onSettings)
         }
     }, bottomBar = {
@@ -139,12 +139,13 @@ fun HomeScreen(
                 IconButton(onRefresh, enabled = !browser.loading) { Icon(Icons.Outlined.Refresh, "새로고침") }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            lists.SaveableStateProvider("$tab:$pathKey") {
+            // Do not restore a saved scroll position against a temporary one-row loading list.
+            if (tab == "files" && browser.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            else lists.SaveableStateProvider("$tab:$pathKey") {
                 val scroll = rememberLazyListState()
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = scroll, contentPadding = PaddingValues(bottom = 16.dp)) {
                     when (tab) {
                         "files" -> when {
-                            browser.loading -> item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
                             browser.error != null -> item {
                                 Column(Modifier.padding(24.dp)) {
                                     Text(browser.error, color = MaterialTheme.colorScheme.error)
@@ -257,9 +258,9 @@ private fun HardwareKey(icon: ImageVector, label: String, onClick: () -> Unit, m
         .border(1.dp, if (primary) background else MaterialTheme.colorScheme.outlineVariant, shape)
         .clickable(source, indication = null, role = Role.Button, onClick = onClick)
         .semantics { contentDescription = label }
-        .padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            Icon(icon, null, Modifier.size(19.dp), tint = foreground)
+        .padding(horizontal = 8.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(icon, null, Modifier.size(18.dp), tint = foreground)
             if (showLabel) Text(label, fontSize = 12.sp, color = foreground, maxLines = 1)
         }
     }

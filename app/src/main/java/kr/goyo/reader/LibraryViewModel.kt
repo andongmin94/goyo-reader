@@ -34,7 +34,6 @@ class LibraryViewModel(application: Application, private val savedState: SavedSt
     private var openingJob: Job? = null
     private val positionChanges = MutableStateFlow<Pair<String, ReadingPosition>?>(null)
     private val latestPositions = mutableMapOf<String, ReadingPosition>()
-
     init {
         viewModelScope.launch {
             repository.state.catch { error.value = "독서 기록을 불러오지 못했습니다: ${it.message}"; ready.value = true }
@@ -57,7 +56,6 @@ class LibraryViewModel(application: Application, private val savedState: SavedSt
             }
         }
     }
-
     fun navigate(path: List<FolderLocation>) {
         navigation?.cancel()
         browser.value = BrowserState(path = path, loading = true)
@@ -88,9 +86,12 @@ class LibraryViewModel(application: Application, private val savedState: SavedSt
         openUri(uri)
     } }
     fun open(book: BookRecord) = openTask { repository.openRecord(book.copy(position = latestPositions[book.id] ?: book.position)) }
-    fun readImages() = openTask { repository.openImageFolder(browser.value.path) }
+    fun readImages() {
+        val path = browser.value.path
+        val existing = library.value.books.firstOrNull { it.imageFolder && it.uri == path.lastOrNull()?.uri }
+        if (existing != null) open(existing) else openTask { repository.openImageFolder(path) }
+    }
     fun toggleFavorite() { task { repository.toggleFavorite(browser.value.path) } }
-
     private fun openTask(block: suspend () -> OpenedDocument) {
         if (opening.value) return
         flushPosition()
@@ -113,7 +114,7 @@ class LibraryViewModel(application: Application, private val savedState: SavedSt
     fun cancelOpen() { openingJob?.cancel() }
     fun close() { flushPosition(); positionChanges.value = null; session.value = null; savedState["openBookId"] = null }
     fun reportPosition(id: String, position: ReadingPosition) {
-        val input = session.value?.input
+        val input = session.value?.takeIf { it.book.id == id }?.input
         val anchored = if (input is ReaderInput.Images) input.anchor(position) else position
         latestPositions[id] = anchored
         positionChanges.value = id to anchored
