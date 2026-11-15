@@ -62,8 +62,13 @@ class ReaderFlowTest {
         compose.onNodeWithContentDescription("책갈피 추가").performClick()
         compose.onNode(hasSetTextAction()).performTextReplacement("다시 읽을 곳")
         compose.onNodeWithText("저장").performClick()
-        // Drive queued UI work while DataStore finishes; blocking here can starve the save task.
-        compose.waitUntil(5_000) { model.library.value.bookmarks.any { it.title == "다시 읽을 곳" } }
+        // Drain Android and Compose queues as the background DataStore write completes.
+        compose.waitUntil(5_000) {
+            compose.runOnIdle {
+                assertNull("Bookmark save must not report an error", model.error.value)
+                model.library.value.bookmarks.isNotEmpty()
+            }
+        }
         val persisted = runBlocking { repository.state.first() }
         val saved = persisted.bookmarks.single { it.title == "다시 읽을 곳" }
         val book = persisted.books.single()
