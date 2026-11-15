@@ -7,13 +7,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.transformable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -23,19 +17,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -47,39 +29,21 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
-import java.io.File
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kr.goyo.reader.model.BookKind
-import kr.goyo.reader.model.ReaderCommand
-import kr.goyo.reader.model.ReaderInfo
-import kr.goyo.reader.model.ReaderSettings
-import kr.goyo.reader.model.ReadingMode
-import kr.goyo.reader.model.ReadingPosition
-import kr.goyo.reader.model.SearchResult
-import kr.goyo.reader.model.TapLayout
-import kr.goyo.reader.model.pageAtProgress
-import kr.goyo.reader.model.pageProgress
+import kr.goyo.reader.model.*
 import kr.goyo.reader.reader.visual.ImagePageSource
 import kr.goyo.reader.reader.visual.VisualPageSource
 import kr.goyo.reader.reader.visual.buildPageSlices
@@ -87,7 +51,7 @@ import kr.goyo.reader.reader.visual.sliceAtPosition
 
 @Composable
 fun VisualReader(
-    file: File,
+    input: ReaderInput,
     kind: BookKind,
     initialPosition: ReadingPosition,
     settings: ReaderSettings,
@@ -101,22 +65,25 @@ fun VisualReader(
     onAutoReadingFinished: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var source by remember(file, kind) { mutableStateOf<VisualPageSource?>(null) }
-    var failure by remember(file, kind) { mutableStateOf<String?>(null) }
-    var currentPosition by remember(file, kind) { mutableStateOf(initialPosition) }
+    val context = LocalContext.current
+    var source by remember(input, kind) { mutableStateOf<VisualPageSource?>(null) }
+    var failure by remember(input, kind) { mutableStateOf<String?>(null) }
+    var currentPosition by remember(input, kind) { mutableStateOf(initialPosition) }
     val errorCallback by rememberUpdatedState(onError)
     val positionCallback by rememberUpdatedState(onPosition)
-    LaunchedEffect(file, kind) {
+    LaunchedEffect(input, kind) {
         var opened: VisualPageSource? = null
         try {
             withContext(Dispatchers.IO) {
-                opened = if (kind == BookKind.PDF) PdfPageSource(file) else ImagePageSource(file)
+                opened = when (input) {
+                    is ReaderInput.Images -> ImagePageSource(context, input.entries)
+                    is ReaderInput.LocalFile -> if (kind == BookKind.PDF) PdfPageSource(input.file) else ImagePageSource(input.file)
+                }
             }
             source = opened
             awaitCancellation()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
             val message = error.message ?: "이 파일을 열 수 없습니다."
             failure = message
             errorCallback(message)
@@ -126,35 +93,24 @@ fun VisualReader(
         }
     }
     CompositionLocalProvider(LocalContentColor provides Color(settings.textColor)) {
-    Box(modifier.fillMaxSize().background(Color(settings.backgroundColor))) {
-        val loaded = source
-        when {
-            failure != null -> Text(
-                text = failure.orEmpty(),
-                color = Color(settings.textColor),
-                textAlign = TextAlign.Center,
-                modifier = Modifier.align(Alignment.Center).padding(32.dp),
-            )
-            loaded == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-            else -> key(loaded, settings.readingMode) {
-                val reportPosition: (ReadingPosition) -> Unit = {
-                    currentPosition = it
-                    positionCallback(it)
-                }
-                if (settings.readingMode == ReadingMode.PAGE) {
-                    PagedVisualReader(
-                        loaded, currentPosition, settings, commands, autoReading,
-                        reportPosition, onInfo, onSearchResults, onToggleChrome, onError, onAutoReadingFinished,
-                    )
-                } else {
-                    ScrolledVisualReader(
-                        loaded, currentPosition, settings, commands, autoReading,
-                        reportPosition, onInfo, onSearchResults, onToggleChrome, onError, onAutoReadingFinished,
-                    )
+        Box(modifier.fillMaxSize().background(Color(settings.backgroundColor))) {
+            val loaded = source
+            when {
+                failure != null -> Text(failure.orEmpty(), color = Color(settings.textColor), textAlign = TextAlign.Center,
+                    modifier = Modifier.align(Alignment.Center).padding(32.dp))
+                loaded == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                else -> key(loaded, settings.readingMode) {
+                    val reportPosition: (ReadingPosition) -> Unit = { currentPosition = it; positionCallback(it) }
+                    if (settings.readingMode == ReadingMode.PAGE) {
+                        PagedVisualReader(loaded, currentPosition, settings, commands, autoReading,
+                            reportPosition, onInfo, onSearchResults, onToggleChrome, onError, onAutoReadingFinished)
+                    } else {
+                        ScrolledVisualReader(loaded, currentPosition, settings, commands, autoReading,
+                            reportPosition, onInfo, onSearchResults, onToggleChrome, onError, onAutoReadingFinished)
+                    }
                 }
             }
         }
-    }
     }
 }
 
@@ -187,7 +143,6 @@ private fun PagedVisualReader(
         val target = (pager.currentPage + delta).coerceIn(0, count - 1)
         if (target != pager.currentPage) pager.animateScrollToPage(target)
     }
-
     LaunchedEffect(pager) {
         snapshotFlow { pager.settledPage }.distinctUntilChanged().collect { page ->
             zoomed = false
@@ -206,10 +161,7 @@ private fun PagedVisualReader(
                     is ReaderCommand.SeekProgress -> pager.scrollToPage(pageAtProgress(command.progress, count))
                     is ReaderCommand.Search -> searchCallback(emptyList())
                 }
-            } catch (cancelled: CancellationException) {
-                // A gesture cancels this move, but later reader commands must still be collected.
-                currentCoroutineContext().ensureActive()
-            }
+            } catch (cancelled: CancellationException) { currentCoroutineContext().ensureActive() }
         }
     }
     LaunchedEffect(autoReading, pager, lifecycle) {
@@ -221,27 +173,18 @@ private fun PagedVisualReader(
                     return@repeatOnLifecycle
                 }
                 if (!pager.isScrollInProgress && !zoomed) {
-                    try {
-                        changePage(1)
-                    } catch (cancelled: CancellationException) {
-                        currentCoroutineContext().ensureActive()
-                    }
+                    try { changePage(1) }
+                    catch (cancelled: CancellationException) { currentCoroutineContext().ensureActive() }
                 }
             }
         }
     }
-    HorizontalPager(
-        state = pager,
-        reverseLayout = settings.rightToLeft,
-        modifier = Modifier.fillMaxSize(),
-        key = { it },
-    ) { page ->
+    HorizontalPager(state = pager, reverseLayout = settings.rightToLeft,
+        modifier = Modifier.fillMaxSize(), key = { it }) { page ->
         val zoom = remember(page) { ViewportZoom() }
         LaunchedEffect(pager.settledPage) { if (pager.settledPage != page) zoom.reset() }
         LaunchedEffect(zoom, pager.settledPage) {
-            if (pager.settledPage == page) {
-                snapshotFlow { zoom.scale > 1.01f }.collect { zoomed = it }
-            }
+            if (pager.settledPage == page) snapshotFlow { zoom.scale > 1.01f }.collect { zoomed = it }
         }
         BoxWithConstraints(Modifier.fillMaxSize().clipToBounds()) {
             val density = LocalDensity.current
@@ -254,38 +197,24 @@ private fun PagedVisualReader(
             zoom.content = Size(fitWidth, fitHeight)
             LaunchedEffect(width, height) { zoom.rebound() }
             val gestureState = rememberTransformableState { scale, pan, _ -> zoom.transform(scale, pan) }
-            Box(
-                Modifier.fillMaxSize()
-                    .transformable(gestureState, canPan = { zoom.scale > 1.01f }, lockRotationOnZoomPan = true)
-                    .pointerInput(zoom, settings.tapLayout, settings.rightToLeft) {
-                        detectTapGestures(
-                            onDoubleTap = { zoom.toggle(it) },
-                            onLongPress = { onToggleChrome() },
-                            onTap = { point ->
-                                if (zoom.scale > 1.01f) onToggleChrome()
-                                else handleVisualTap(
-                                    point.x / size.width.coerceAtLeast(1), settings,
-                                    { scope.launch { changePage(1) } },
-                                    { scope.launch { changePage(-1) } },
-                                    onToggleChrome,
-                                )
-                            },
-                        )
-                    },
-            ) {
-                PageBitmap(
-                    source = source,
-                    page = page,
-                    requestedWidth = rasterWidth(fitWidth * zoom.scale),
-                    onError = onError,
+            Box(Modifier.fillMaxSize()
+                .transformable(gestureState, canPan = { zoom.scale > 1.01f }, lockRotationOnZoomPan = true)
+                .pointerInput(zoom, settings.tapLayout, settings.rightToLeft) {
+                    detectTapGestures(
+                        onDoubleTap = { zoom.toggle(it) }, onLongPress = { onToggleChrome() },
+                        onTap = { point ->
+                            if (zoom.scale > 1.01f) onToggleChrome()
+                            else handleVisualTap(point.x / size.width.coerceAtLeast(1), settings,
+                                { scope.launch { changePage(1) } }, { scope.launch { changePage(-1) } }, onToggleChrome)
+                        },
+                    )
+                }) {
+                PageBitmap(source, page, rasterWidth(fitWidth * zoom.scale), onError,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize().graphicsLayer {
-                        scaleX = zoom.scale
-                        scaleY = zoom.scale
-                        translationX = zoom.offset.x
-                        translationY = zoom.offset.y
-                    },
-                )
+                        scaleX = zoom.scale; scaleY = zoom.scale
+                        translationX = zoom.offset.x; translationY = zoom.offset.y
+                    })
             }
         }
     }
@@ -322,36 +251,25 @@ private fun ScrolledVisualReader(
         var restored by remember(source, width, height) { mutableStateOf(false) }
         zoom.viewport = Size(width.toFloat(), height.toFloat())
         zoom.content = zoom.viewport
-
         fun wholePageHeight(page: Int): Float = width / source.dimensions[page].aspectRatio
-
         suspend fun seek(position: ReadingPosition) {
             zoom.reset()
             val page = position.index.coerceIn(0, source.dimensions.lastIndex)
             val sliceIndex = sliceAtPosition(slices, page, position.offset)
             val slice = slices[sliceIndex]
-            val offset = ((position.offset.coerceIn(0f, 1f) - slice.top) * wholePageHeight(page))
-                .roundToInt().coerceAtLeast(0)
+            val offset = ((position.offset.coerceIn(0f, 1f) - slice.top) * wholePageHeight(page)).roundToInt().coerceAtLeast(0)
             list.scrollToItem(sliceIndex, offset)
         }
-
-        LaunchedEffect(source, width, height) {
-            seek(initialPosition)
-            restored = true
-        }
+        LaunchedEffect(source, width, height) { seek(initialPosition); restored = true }
         LaunchedEffect(list, slices, restored) {
-            if (restored) {
-                snapshotFlow {
-                    Triple(list.firstVisibleItemIndex, list.firstVisibleItemScrollOffset, list.canScrollForward)
-                }.distinctUntilChanged().collect { (index, scrollOffset, canScrollForward) ->
-                    val slice = slices[index.coerceIn(slices.indices)]
-                    val offset = (slice.top + scrollOffset / wholePageHeight(slice.page)).coerceIn(0f, 1f)
-                    val progress = if (canScrollForward) {
-                        (slice.page + offset) / source.dimensions.size
-                    } else 1f
-                    positionCallback(ReadingPosition(index = slice.page, offset = offset, progress = progress))
-                    infoCallback(ReaderInfo(current = slice.page + 1, total = source.dimensions.size))
-                }
+            if (restored) snapshotFlow {
+                Triple(list.firstVisibleItemIndex, list.firstVisibleItemScrollOffset, list.canScrollForward)
+            }.distinctUntilChanged().collect { (index, scrollOffset, canScrollForward) ->
+                val slice = slices[index.coerceIn(slices.indices)]
+                val offset = (slice.top + scrollOffset / wholePageHeight(slice.page)).coerceIn(0f, 1f)
+                val progress = if (canScrollForward) (slice.page + offset) / source.dimensions.size else 1f
+                positionCallback(ReadingPosition(index = slice.page, offset = offset, progress = progress))
+                infoCallback(ReaderInfo(current = slice.page + 1, total = source.dimensions.size))
             }
         }
         LaunchedEffect(commands, list, slices) {
@@ -361,9 +279,7 @@ private fun ScrolledVisualReader(
                         ReaderCommand.Next -> { zoom.reset(); list.scrollBy(height * 0.85f) }
                         ReaderCommand.Previous -> { zoom.reset(); list.scrollBy(-height * 0.85f) }
                         is ReaderCommand.Seek -> seek(command.position)
-                        is ReaderCommand.SeekPage -> seek(
-                            ReadingPosition(index = command.page.coerceIn(1, source.dimensions.size) - 1),
-                        )
+                        is ReaderCommand.SeekPage -> seek(ReadingPosition(index = command.page.coerceIn(1, source.dimensions.size) - 1))
                         is ReaderCommand.SeekProgress -> {
                             val fraction = command.progress.coerceIn(0f, 1f)
                             val absolutePage = fraction * source.dimensions.size
@@ -372,9 +288,7 @@ private fun ScrolledVisualReader(
                         }
                         is ReaderCommand.Search -> searchCallback(emptyList())
                     }
-                } catch (cancelled: CancellationException) {
-                    currentCoroutineContext().ensureActive()
-                }
+                } catch (cancelled: CancellationException) { currentCoroutineContext().ensureActive() }
             }
         }
         LaunchedEffect(autoReading, list, lifecycle, restored) {
@@ -390,58 +304,36 @@ private fun ScrolledVisualReader(
                     }
                     if (!list.isScrollInProgress && zoom.scale <= 1.01f) {
                         val distance = currentSettings.autoScrollDpPerSecond * density.density * seconds
-                        try {
-                            list.scrollBy(distance)
-                        } catch (cancelled: CancellationException) {
-                            // A direct user scroll may interrupt just this mutation, not automatic reading.
-                            currentCoroutineContext().ensureActive()
-                        }
+                        try { list.scrollBy(distance) }
+                        catch (cancelled: CancellationException) { currentCoroutineContext().ensureActive() }
                     }
                 }
             }
         }
         val gestureState = rememberTransformableState { scale, pan, _ -> zoom.transform(scale, pan) }
-        Box(
-            Modifier.fillMaxSize()
-                .transformable(gestureState, canPan = { zoom.scale > 1.01f }, lockRotationOnZoomPan = true)
-                .pointerInput(zoom, settings.tapLayout, settings.rightToLeft, height) {
-                    detectTapGestures(
-                        onDoubleTap = { zoom.toggle(it) },
-                        onLongPress = { onToggleChrome() },
-                        onTap = { point ->
-                            if (zoom.scale > 1.01f) onToggleChrome()
-                            else handleVisualTap(
-                                point.x / size.width.coerceAtLeast(1), settings,
-                                { scope.launch { list.scrollBy(height * 0.85f) } },
-                                { scope.launch { list.scrollBy(-height * 0.85f) } },
-                                onToggleChrome,
-                            )
-                        },
-                    )
-                },
-        ) {
-            LazyColumn(
-                state = list,
-                userScrollEnabled = zoom.scale <= 1.01f,
+        Box(Modifier.fillMaxSize()
+            .transformable(gestureState, canPan = { zoom.scale > 1.01f }, lockRotationOnZoomPan = true)
+            .pointerInput(zoom, settings.tapLayout, settings.rightToLeft, height) {
+                detectTapGestures(
+                    onDoubleTap = { zoom.toggle(it) }, onLongPress = { onToggleChrome() },
+                    onTap = { point ->
+                        if (zoom.scale > 1.01f) onToggleChrome()
+                        else handleVisualTap(point.x / size.width.coerceAtLeast(1), settings,
+                            { scope.launch { list.scrollBy(height * 0.85f) } },
+                            { scope.launch { list.scrollBy(-height * 0.85f) } }, onToggleChrome)
+                    },
+                )
+            }) {
+            LazyColumn(state = list, userScrollEnabled = zoom.scale <= 1.01f,
                 modifier = Modifier.fillMaxSize().graphicsLayer {
-                    scaleX = zoom.scale
-                    scaleY = zoom.scale
-                    translationX = zoom.offset.x
-                    translationY = zoom.offset.y
-                },
-            ) {
+                    scaleX = zoom.scale; scaleY = zoom.scale
+                    translationX = zoom.offset.x; translationY = zoom.offset.y
+                }) {
                 itemsIndexed(slices, key = { index, _ -> index }) { _, slice ->
                     val displayHeight = wholePageHeight(slice.page) * slice.fraction
-                    PageBitmap(
-                        source = source,
-                        page = slice.page,
-                        requestedWidth = rasterWidth(width * zoom.scale),
-                        top = slice.top,
-                        bottom = slice.bottom,
-                        onError = onError,
-                        contentScale = ContentScale.FillBounds,
-                        modifier = Modifier.fillMaxWidth().height(with(density) { displayHeight.toDp() }),
-                    )
+                    PageBitmap(source, slice.page, rasterWidth(width * zoom.scale), onError,
+                        top = slice.top, bottom = slice.bottom, contentScale = ContentScale.FillBounds,
+                        modifier = Modifier.fillMaxWidth().height(with(density) { displayHeight.toDp() }))
                 }
             }
         }
@@ -464,16 +356,15 @@ private fun PageBitmap(
     val errorCallback by rememberUpdatedState(onError)
     LaunchedEffect(source, page, requestedWidth, top, bottom) {
         try {
-            if (bitmap != null) delay(120) // Re-render after a pinch settles; keep the current image visible.
+            if (bitmap != null) delay(120)
             val rendered = withContext(Dispatchers.IO) {
                 currentCoroutineContext().ensureActive()
                 source.render(page, requestedWidth, top, bottom)
             }
             bitmap = rendered
             failure = null
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
             currentCoroutineContext().ensureActive()
             val message = error.message ?: "${page + 1}쪽을 읽을 수 없습니다."
             failure = message
@@ -483,34 +374,18 @@ private fun PageBitmap(
     Box(modifier, contentAlignment = Alignment.Center) {
         val current = bitmap
         when {
-            current != null -> Image(
-                bitmap = current.asImageBitmap(),
-                contentDescription = "${page + 1}쪽 · ${source.labels[page]}",
-                contentScale = contentScale,
-                filterQuality = FilterQuality.High,
-                modifier = Modifier.fillMaxSize(),
-            )
-            failure != null -> Text(
-                text = failure.orEmpty(),
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(20.dp),
-            )
+            current != null -> Image(current.asImageBitmap(), "${page + 1}쪽 · ${source.labels[page]}",
+                contentScale = contentScale, filterQuality = FilterQuality.High, modifier = Modifier.fillMaxSize())
+            failure != null -> Text(failure.orEmpty(), style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center, modifier = Modifier.padding(20.dp))
             else -> CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.dp)
         }
     }
 }
 
-private fun rasterWidth(width: Float): Int = (ceil(width.coerceAtLeast(1f) / 128f) * 128f)
-    .toInt().coerceIn(128, 8192)
+private fun rasterWidth(width: Float): Int = (ceil(width.coerceAtLeast(1f) / 128f) * 128f).toInt().coerceIn(128, 8192)
 
-private fun handleVisualTap(
-    x: Float,
-    settings: ReaderSettings,
-    next: () -> Unit,
-    previous: () -> Unit,
-    chrome: () -> Unit,
-) {
+private fun handleVisualTap(x: Float, settings: ReaderSettings, next: () -> Unit, previous: () -> Unit, chrome: () -> Unit) {
     if (settings.tapLayout == TapLayout.ANYWHERE_NEXT) { next(); return }
     val nextOnRight = (settings.tapLayout != TapLayout.LEFT_HANDED) != settings.rightToLeft
     when {
@@ -525,28 +400,17 @@ private class ViewportZoom {
     var offset by mutableStateOf(Offset.Zero)
     var viewport: Size = Size.Zero
     var content: Size = Size.Zero
-
     fun transform(change: Float, pan: Offset) {
         val nextScale = (scale * change).coerceIn(1f, 5f)
         offset = bound(offset * (nextScale / scale) + pan, nextScale)
         scale = nextScale
     }
-
     fun toggle(point: Offset) {
         if (scale > 1.01f) reset()
-        else {
-            scale = 2.5f
-            offset = bound((Offset(viewport.width / 2, viewport.height / 2) - point) * (scale - 1), scale)
-        }
+        else { scale = 2.5f; offset = bound((Offset(viewport.width / 2, viewport.height / 2) - point) * (scale - 1), scale) }
     }
-
-    fun reset() {
-        scale = 1f
-        offset = Offset.Zero
-    }
-
+    fun reset() { scale = 1f; offset = Offset.Zero }
     fun rebound() { offset = bound(offset, scale) }
-
     private fun bound(value: Offset, zoom: Float): Offset {
         val x = max(0f, (content.width * zoom - viewport.width) / 2)
         val y = max(0f, (content.height * zoom - viewport.height) / 2)

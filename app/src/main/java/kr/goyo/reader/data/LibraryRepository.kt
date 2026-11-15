@@ -3,152 +3,173 @@ package kr.goyo.reader.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
-import android.provider.OpenableColumns
+import android.provider.DocumentsContract
 import androidx.datastore.core.CorruptionException
 import androidx.datastore.core.DataStoreFactory
 import androidx.datastore.core.Serializer
 import androidx.datastore.dataStoreFile
-import androidx.documentfile.provider.DocumentFile
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.UUID
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kr.goyo.reader.model.*
+import kr.goyo.reader.reader.OpenedDocument
+import kr.goyo.reader.reader.ReaderInput
+import kr.goyo.reader.reader.visual.ImagePageSource
+import kr.goyo.reader.reader.visual.NaturalFileOrder
 import kotlin.coroutines.coroutineContext
 
 private val libraryJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
-private val imageExtensions = setOf("jpg", "jpeg", "png", "webp")
 
 internal object LibrarySerializer : Serializer<LibraryState> {
     override val defaultValue = LibraryState()
     override suspend fun readFrom(input: InputStream): LibraryState = try {
         libraryJson.decodeFromString<LibraryState>(input.readBytes().decodeToString())
     } catch (error: SerializationException) {
-        throw CorruptionException("서재 정보를 읽을 수 없습니다.", error)
+        throw CorruptionException("독서 기록을 읽을 수 없습니다.", error)
     }
     override suspend fun writeTo(t: LibraryState, output: OutputStream) {
         output.write(libraryJson.encodeToString(LibraryState.serializer(), t).toByteArray())
     }
 }
 
-data class SourceDocument(val uri: Uri, val name: String, val size: Long, val kind: BookKind, val extension: String) {
-    val isImage get() = extension in imageExtensions
-}
-data class ImageGroup(val title: String, val files: List<SourceDocument>)
-data class ImportPlan(val documents: List<SourceDocument>, val imageGroups: List<ImageGroup>) {
-    val bookCount get() = documents.size + imageGroups.size
-    val bytes get() = documents.sumOf { it.size } + imageGroups.sumOf { group -> group.files.sumOf { it.size } }
-}
-
-/** The shelf owns imported copies; it never renames, edits or deletes source documents. */
+/** Original documents remain with their provider. Only opened seekable documents are staged. */
 class LibraryRepository(private val context: Context) {
+    val directories = DirectoryAccess(context)
     private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val store = DataStoreFactory.create(
         serializer = LibrarySerializer,
-        produceFile = { context.dataStoreFile("library.json") },
+        produceFile = { context.dataStoreFile("documents.json") },
     )
     val state = store.data
-    private val booksDirectory = File(context.filesDir, "books").apply { mkdirs() }
-    private val fontsDirectory = File(context.filesDir, "fonts").apply { mkdirs() }
+    private val openMutex = Mutex()
     private val covers = BookCoverCache(context)
+    private val documentCache = File(context.cacheDir, "reader-documents")
+    private val fontsDirectory = File(context.filesDir, "fonts")
 
-    fun fileFor(book: BookRecord) = File(booksDirectory, book.fileName)
+    suspend fun browse(path: List<FolderLocation>): List<FileEntry> =
+        if (path.isEmpty()) emptyList() else directories.children(path.last())
 
-    suspend fun coverFor(book: BookRecord): Bitmap? = covers.coverFor(book, fileFor(book))
+    suspend fun saveFolder(path: List<FolderLocation>) { store.updateData { it.copy(folderPath = path) } }
 
-    suspend fun planFiles(uris: List<Uri>): ImportPlan = withContext(Dispatchers.IO) {
-        val sources = uris.map { source(it) }
-        if (sources.size > 1 && sources.all { it.isImage }) {
-            ImportPlan(emptyList(), listOf(ImageGroup("이미지 모음 · ${sources.first().name.substringBeforeLast('.')}", sources)))
-        } else ImportPlan(sources, emptyList())
+    suspend fun toggleFavorite(path: List<FolderLocation>) {
+        if (path.isEmpty()) return
+        store.updateData { state ->
+            val exists = state.favoritePaths.any { it.lastOrNull()?.uri == path.last().uri }
+            state.copy(favoritePaths = if (exists) state.favoritePaths.filterNot { it.lastOrNull()?.uri == path.last().uri }
+                else state.favoritePaths + listOf(path))
+        }
     }
 
-    suspend fun planFolder(uri: Uri): ImportPlan = withContext(Dispatchers.IO) {
-        val root = DocumentFile.fromTreeUri(context, uri)
-            ?: error("선택한 폴더를 열 수 없습니다.")
-        val documents = mutableListOf<SourceDocument>()
-        val imageGroups = mutableListOf<ImageGroup>()
-        val importContext = coroutineContext
-        fun scan(directory: DocumentFile) {
-            importContext.ensureActive()
-            val images = mutableListOf<SourceDocument>()
-            for (child in directory.listFiles()) {
-                val name = child.name ?: continue
-                if (child.isDirectory) scan(child)
-                else {
-                    val mime = child.type
-                    val kind = kindFor(name, mime) ?: continue
-                    val source = SourceDocument(child.uri, name, child.length(), kind, storageExtension(name, kind, mime))
-                    if (source.isImage) images += source else documents += source
-                }
-            }
-            if (images.isNotEmpty()) imageGroups += ImageGroup(directory.name ?: "이미지 모음", images)
+    suspend fun openFile(uri: Uri, folderPath: List<FolderLocation> = emptyList()): OpenedDocument = openMutex.withLock {
+        val entry = directories.entry(uri)
+        require(!entry.directory) { "폴더 안에서 파일을 선택해 주세요." }
+        if (entry.image && folderPath.isNotEmpty()) {
+            openImages(folderPath, selectedUri = entry.uri)
+        } else {
+            val book = record(entry, folderPath)
+            val input = if (entry.image) ReaderInput.Images(listOf(entry)) else ReaderInput.LocalFile(stage(book))
+            rememberOpened(book)
+            OpenedDocument(book, input)
         }
-        scan(root)
-        ImportPlan(documents, imageGroups)
     }
 
-    suspend fun import(plan: ImportPlan, onProgress: (String, Int, Int) -> Unit): List<BookRecord> = withContext(Dispatchers.IO) {
-        val added = mutableListOf<BookRecord>()
-        for (source in plan.documents) {
-            coroutineContext.ensureActive()
-            onProgress(source.name, added.size, plan.bookCount)
-            val id = UUID.randomUUID().toString()
-            val fileName = "$id.${source.extension}"
-            val file = File(booksDirectory, fileName)
-            val book = try {
-                copyUri(source.uri, file)
-                require(file.length() > 0) { "${source.name}: 빈 파일입니다." }
-                BookRecord(id, source.name.substringBeforeLast('.'), fileName, source.kind, file.length(), System.currentTimeMillis())
-            } catch (error: Throwable) {
-                file.delete()
-                throw error
-            }
-            commitBook(book, file)
-            added += book
+    suspend fun openRecord(book: BookRecord): OpenedDocument = openMutex.withLock {
+        if (book.imageFolder) openImages(book.folderPath, selectedUri = null, resume = book.position)
+        else {
+            val entry = directories.entry(Uri.parse(book.uri))
+            val fresh = record(entry, book.folderPath).copy(position = book.position)
+            val input = if (entry.image) ReaderInput.Images(listOf(entry)) else ReaderInput.LocalFile(stage(fresh))
+            rememberOpened(fresh)
+            OpenedDocument(fresh, input)
         }
-        for (group in plan.imageGroups) {
-            coroutineContext.ensureActive()
-            onProgress(group.title, added.size, plan.bookCount)
-            val id = UUID.randomUUID().toString()
-            val fileName = "$id.cbz"
-            val file = File(booksDirectory, fileName)
-            val book = try {
-                ZipOutputStream(file.outputStream().buffered()).use { output ->
-                    val ordered = group.files.sortedWith { left, right -> kr.goyo.reader.reader.visual.NaturalFileOrder.compare(left.name, right.name) }
-                    ordered.forEachIndexed { index, image ->
+    }
+
+    suspend fun openImageFolder(path: List<FolderLocation>): OpenedDocument = openMutex.withLock {
+        openImages(path, selectedUri = null)
+    }
+
+    private suspend fun openImages(path: List<FolderLocation>, selectedUri: String?, resume: ReadingPosition? = null): OpenedDocument {
+        require(path.isNotEmpty()) { "먼저 이미지 폴더를 선택해 주세요." }
+        val entries = browse(path).filter { it.image }.sortedWith { a, b -> NaturalFileOrder.compare(a.name, b.name) }
+        require(entries.isNotEmpty()) { "이 폴더에 읽을 이미지가 없습니다." }
+        val folder = path.last()
+        val bookId = identity(Uri.parse(folder.uri))
+        val saved = state.first().books.firstOrNull { it.id == bookId }
+        val input = ReaderInput.Images(entries)
+        val position = if (selectedUri != null) {
+            val index = entries.indexOfFirst { it.uri == selectedUri }
+            require(index >= 0) { "선택한 이미지가 폴더에서 사라졌습니다." }
+            ReadingPosition(index = index, locator = selectedUri, progress = pageProgress(index, entries.size))
+        } else input.resolve(resume ?: saved?.position ?: ReadingPosition())
+        val book = BookRecord(bookId, folder.name, folder.uri, BookKind.COMIC,
+            entries.sumOf { it.size }, saved?.addedAt ?: System.currentTimeMillis(),
+            System.currentTimeMillis(), position, path, imageFolder = true)
+        rememberOpened(book)
+        return OpenedDocument(book, input)
+    }
+
+    private suspend fun record(entry: FileEntry, path: List<FolderLocation>): BookRecord {
+        val kind = entry.kind ?: error("${entry.name}: 지원하지 않는 파일 형식입니다.")
+        val id = identity(Uri.parse(entry.uri))
+        val saved = state.first().books.firstOrNull { it.id == id }
+        return BookRecord(id, entry.name, entry.uri, kind, entry.size,
+            saved?.addedAt ?: System.currentTimeMillis(), System.currentTimeMillis(),
+            saved?.position ?: ReadingPosition(), path)
+    }
+
+    private suspend fun rememberOpened(book: BookRecord) {
+        store.updateData { state -> state.copy(books = state.books.filterNot { it.id == book.id } + book) }
+    }
+
+    /** ZIP, EPUB and PDF engines need a seekable local file; TXT shares this input path.
+     * Refresh on every explicit open so edits outside the app never leave a stale copy. */
+    private suspend fun stage(book: BookRecord): File = withContext(Dispatchers.IO) {
+        check(documentCache.isDirectory || documentCache.mkdirs())
+        val target = fileFor(book)
+        val partial = File(documentCache, "${book.id}.part")
+        try {
+            context.contentResolver.openInputStream(Uri.parse(book.uri))?.use { input ->
+                partial.outputStream().buffered().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
                         coroutineContext.ensureActive()
-                        val name = "${index.toString().padStart(8, '0')}.${image.extension}"
-                        output.putNextEntry(ZipEntry(name))
-                        context.contentResolver.openInputStream(image.uri)?.use { it.copyTo(output) }
-                            ?: error("${image.name} 파일을 읽을 수 없습니다.")
-                        output.closeEntry()
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
                     }
                 }
-                BookRecord(id, group.title, fileName, BookKind.COMIC, file.length(), System.currentTimeMillis())
-            } catch (error: Throwable) { file.delete(); throw error }
-            commitBook(book, file)
-            added += book
-        }
-        onProgress("가져오기 완료", added.size, plan.bookCount)
-        added
+            } ?: error("파일을 읽을 수 없습니다. 폴더 접근 권한을 다시 확인해 주세요.")
+            coroutineContext.ensureActive()
+            check(partial.renameTo(target)) { "읽기용 파일을 준비하지 못했습니다." }
+            covers.remove(book.id)
+            target
+        } finally { partial.delete() }
     }
 
-    private suspend fun commitBook(book: BookRecord, file: File) = withContext(NonCancellable) {
-        try { store.updateData { it.copy(books = it.books + book) } }
-        catch (error: Exception) { file.delete(); throw error }
+    fun fileFor(book: BookRecord) = File(documentCache, "${book.id}.${when (book.kind) {
+        BookKind.TEXT -> "txt"; BookKind.PDF -> "pdf"; BookKind.EPUB -> "epub"; BookKind.COMIC -> "cbz"
+    }}")
+
+    suspend fun coverFor(book: BookRecord): Bitmap? = if (book.imageFolder) null else covers.coverFor(book, fileFor(book))
+
+    suspend fun preview(entry: FileEntry): Bitmap? = withContext(Dispatchers.IO) {
+        if (entry.directory || entry.kind == null || entry.kind == BookKind.TEXT) return@withContext null
+        try {
+            if (entry.image) {
+                ImagePageSource(context, listOf(entry)).use { source -> source.render(0, 96, 0f, 1f) }
+            } else {
+                val book = state.first().books.firstOrNull { it.id == identity(Uri.parse(entry.uri)) }
+                if (book == null || !fileFor(book).exists()) null else coverFor(book)
+            }
+        } catch (error: CancellationException) { throw error }
+        catch (_: Exception) { null }
     }
 
     fun flushPosition(id: String, position: ReadingPosition, onError: (Throwable) -> Unit) {
@@ -156,40 +177,30 @@ class LibraryRepository(private val context: Context) {
             try { updatePosition(id, position) } catch (error: Exception) { onError(error) }
         }
     }
-
     suspend fun updatePosition(id: String, position: ReadingPosition) {
         store.updateData { state -> state.copy(books = state.books.map {
-            if (it.id == id) it.copy(position = position, lastOpenedAt = System.currentTimeMillis()) else it
+            if (it.id == id) it.copy(position = position) else it
         }) }
     }
-
-    suspend fun markOpened(id: String) {
-        store.updateData { state -> state.copy(books = state.books.map {
-            if (it.id == id) it.copy(lastOpenedAt = System.currentTimeMillis()) else it
-        }) }
-    }
-
     suspend fun saveSettings(settings: ReaderSettings) { store.updateData { it.copy(settings = settings) } }
-
     suspend fun addBookmark(bookId: String, title: String, position: ReadingPosition) {
         val bookmark = Bookmark(UUID.randomUUID().toString(), bookId, title, position, System.currentTimeMillis())
         store.updateData { it.copy(bookmarks = it.bookmarks + bookmark) }
     }
-
     suspend fun deleteBookmark(id: String) { store.updateData { it.copy(bookmarks = it.bookmarks.filterNot { b -> b.id == id }) } }
-
     suspend fun removeBook(book: BookRecord) = withContext(Dispatchers.IO) {
-        store.updateData { it.copy(books = it.books.filterNot { b -> b.id == book.id }, bookmarks = it.bookmarks.filterNot { b -> b.bookId == book.id }) }
+        store.updateData { it.copy(books = it.books.filterNot { b -> b.id == book.id },
+            bookmarks = it.bookmarks.filterNot { b -> b.bookId == book.id }) }
         fileFor(book).delete()
         covers.remove(book.id)
-        Unit
     }
 
     suspend fun importFont(uri: Uri): String = withContext(Dispatchers.IO) {
+        check(fontsDirectory.isDirectory || fontsDirectory.mkdirs())
         val file = File(fontsDirectory, "${UUID.randomUUID()}.font")
         try {
-            copyUri(uri, file)
-            // Check the selected bytes using Android's font parser before changing settings.
+            context.contentResolver.openInputStream(uri)?.use { input -> file.outputStream().use { input.copyTo(it) } }
+                ?: error("선택한 글꼴을 읽을 수 없습니다.")
             android.graphics.Typeface.createFromFile(file)
             val header = ByteArray(4)
             file.inputStream().use { it.read(header) }
@@ -200,61 +211,8 @@ class LibraryRepository(private val context: Context) {
         } catch (error: Throwable) { file.delete(); throw error }
     }
 
-    private fun copyUri(uri: Uri, destination: File) {
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            destination.outputStream().buffered().use { input.copyTo(it) }
-        } ?: error("선택한 파일을 읽을 수 없습니다.")
-    }
-
-    private fun source(uri: Uri): SourceDocument {
-        var name = uri.lastPathSegment?.substringAfterLast('/') ?: "파일"
-        var size = 0L
-        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val ni = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                val si = cursor.getColumnIndex(OpenableColumns.SIZE)
-                if (ni >= 0 && !cursor.isNull(ni)) name = cursor.getString(ni)
-                if (si >= 0 && !cursor.isNull(si)) size = cursor.getLong(si)
-            }
-        }
-        val mime = context.contentResolver.getType(uri)
-        val kind = kindFor(name, mime)
-            ?: error("$name: TXT, ZIP/CBZ, PDF, EPUB, JPG, PNG, WEBP 파일을 선택해 주세요.")
-        return SourceDocument(uri, name, size, kind, storageExtension(name, kind, mime))
-    }
-
-    companion object {
-        fun storageExtension(name: String, kind: BookKind, mime: String?): String {
-            val extension = name.substringAfterLast('.', "").lowercase()
-            return when (kind) {
-                BookKind.TEXT -> "txt"
-                BookKind.PDF -> "pdf"
-                BookKind.EPUB -> "epub"
-                BookKind.COMIC -> when (extension) {
-                    in imageExtensions -> extension
-                    "zip", "cbz" -> "cbz"
-                    else -> when (mime) {
-                        "image/jpeg" -> "jpg"
-                        "image/png" -> "png"
-                        "image/webp" -> "webp"
-                        else -> "cbz"
-                    }
-                }
-            }
-        }
-        fun kindFor(name: String, mime: String? = null): BookKind? = when (name.substringAfterLast('.').lowercase()) {
-            "txt", "text" -> BookKind.TEXT
-            "zip", "cbz", "jpg", "jpeg", "png", "webp" -> BookKind.COMIC
-            "pdf" -> BookKind.PDF
-            "epub" -> BookKind.EPUB
-            else -> when (mime) {
-                "text/plain" -> BookKind.TEXT
-                "application/pdf" -> BookKind.PDF
-                "application/epub+zip" -> BookKind.EPUB
-                "application/zip", "application/vnd.comicbook+zip" -> BookKind.COMIC
-                "image/jpeg", "image/png", "image/webp" -> BookKind.COMIC
-                else -> null
-            }
-        }
+    private fun identity(uri: Uri): String {
+        val key = if (DocumentsContract.isDocumentUri(context, uri)) "${uri.authority}:${DocumentsContract.getDocumentId(uri)}" else uri.toString()
+        return UUID.nameUUIDFromBytes(key.toByteArray(Charsets.UTF_8)).toString()
     }
 }

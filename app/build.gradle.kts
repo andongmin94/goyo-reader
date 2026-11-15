@@ -12,8 +12,8 @@ android {
         applicationId = "kr.goyo.reader"
         minSdk = 26
         targetSdk = 37
-        versionCode = 5
-        versionName = "0.2.0"
+        versionCode = 6
+        versionName = "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
@@ -58,7 +58,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
     implementation("androidx.fragment:fragment-compose:1.9.0")
     implementation("androidx.datastore:datastore:1.2.1")
-    implementation("androidx.documentfile:documentfile:1.1.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("org.readium.kotlin-toolkit:readium-shared:3.4.0")

@@ -1,14 +1,17 @@
 package kr.goyo.reader.reader.visual
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
 import android.graphics.Rect
+import android.net.Uri
 import java.io.Closeable
 import java.io.File
 import java.io.InputStream
 import java.nio.charset.Charset
 import java.util.zip.ZipFile
+import kr.goyo.reader.data.FileEntry
 import kotlin.math.ceil
 import kotlin.math.floor
 
@@ -18,35 +21,25 @@ interface VisualPageSource : Closeable {
     fun render(page: Int, width: Int, top: Float = 0f, bottom: Float = 1f): Bitmap
 }
 
-class ImagePageSource(private val file: File, firstPageOnly: Boolean = false) : VisualPageSource {
-    private val lock = Any()
-    private val archive: ZipFile? = if (file.extension.lowercase() in setOf("zip", "cbz")) {
-        // UTF-8-flagged ZIP names stay UTF-8; old unflagged Korean ZIP names use MS949.
-        ZipFile(file, Charset.forName("MS949"))
-    } else null
-    private var closed = false
+/** One decoder for loose images and archive entries. Folder images are never repackaged. */
+class ImagePageSource private constructor(private val input: ImageStreams) : VisualPageSource {
+    constructor(file: File, firstPageOnly: Boolean = false) : this(fileStreams(file, firstPageOnly))
+    constructor(context: Context, entries: List<FileEntry>) : this(ImageStreams(
+        entries.map { it.name },
+        { page -> context.contentResolver.openInputStream(Uri.parse(entries[page].uri))
+            ?: error("이미지를 읽을 수 없습니다: ${entries[page].name}") },
+    ))
 
-    override val labels: List<String>
+    private val lock = Any()
+    private var closed = false
+    override val labels = input.labels
     override val dimensions: List<PageDimensions>
 
     init {
         try {
-            labels = archive?.entries()?.asSequence()
-                ?.filter { entry ->
-                    !entry.isDirectory &&
-                        !entry.name.startsWith("__MACOSX/") &&
-                        !entry.name.substringAfterLast('/').startsWith(".") &&
-                        entry.name.substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
-                }
-                ?.map { it.name }
-                ?.let { names ->
-                    if (firstPageOnly) listOfNotNull(names.minWithOrNull(NaturalFileOrder))
-                    else names.sortedWith(NaturalFileOrder).toList()
-                }
-                ?: listOf(file.name)
-            require(labels.isNotEmpty()) { "압축파일 안에 JPG, PNG 또는 WebP 이미지가 없습니다." }
+            require(labels.isNotEmpty()) { "읽을 JPG, PNG 또는 WebP 이미지가 없습니다." }
             dimensions = labels.indices.map { page ->
-                withStream(page) { stream ->
+                input.open(page).use { stream ->
                     val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     BitmapFactory.decodeStream(stream, null, options)
                     require(options.outWidth > 0 && options.outHeight > 0) {
@@ -56,20 +49,14 @@ class ImagePageSource(private val file: File, firstPageOnly: Boolean = false) : 
                 }
             }
         } catch (error: Throwable) {
-            archive?.close()
+            input.close()
             throw error
         }
     }
 
-    private fun <T> withStream(page: Int, action: (InputStream) -> T): T {
-        val stream = archive?.let { zip -> zip.getInputStream(zip.getEntry(labels[page])) }
-            ?: file.inputStream()
-        return stream.use(action)
-    }
-
     @Suppress("DEPRECATION")
     override fun render(page: Int, width: Int, top: Float, bottom: Float): Bitmap = synchronized(lock) {
-        check(!closed) { "이 책은 이미 닫혔습니다." }
+        check(!closed) { "이 파일은 이미 닫혔습니다." }
         val size = dimensions[page]
         val firstRow = floor(top.coerceIn(0f, 1f) * size.height).toInt().coerceIn(0, size.height - 1)
         val lastRow = ceil(bottom.coerceIn(0f, 1f) * size.height).toInt().coerceIn(firstRow + 1, size.height)
@@ -77,7 +64,7 @@ class ImagePageSource(private val file: File, firstPageOnly: Boolean = false) : 
             inPreferredConfig = Bitmap.Config.ARGB_8888
             inSampleSize = imageSampleSize(size.width, lastRow - firstRow, width)
         }
-        withStream(page) { stream ->
+        input.open(page).use { stream ->
             if (firstRow == 0 && lastRow == size.height) {
                 requireNotNull(BitmapFactory.decodeStream(stream, null, options)) {
                     "이미지를 읽을 수 없습니다: ${labels[page]}"
@@ -88,21 +75,41 @@ class ImagePageSource(private val file: File, firstPageOnly: Boolean = false) : 
                 }
                 try {
                     requireNotNull(decoder.decodeRegion(Rect(0, firstRow, size.width, lastRow), options))
-                } finally {
-                    decoder.recycle()
-                }
+                } finally { decoder.recycle() }
             }
         }
     }
 
     override fun close() = synchronized(lock) {
-        if (!closed) {
-            closed = true
-            archive?.close()
-        }
+        if (!closed) { closed = true; input.close() }
     }
 
     companion object {
         val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp")
+
+        private fun fileStreams(file: File, firstPageOnly: Boolean): ImageStreams {
+            if (file.extension.lowercase() !in setOf("zip", "cbz")) {
+                return ImageStreams(listOf(file.name), { file.inputStream() })
+            }
+            // Flagged UTF-8 names stay UTF-8; unflagged Korean ZIP names use MS949.
+            val archive = ZipFile(file, Charset.forName("MS949"))
+            try {
+                val names = archive.entries().asSequence().filter {
+                    !it.isDirectory && !it.name.startsWith("__MACOSX/") &&
+                        !it.name.substringAfterLast('/').startsWith(".") &&
+                        it.name.substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
+                }.map { it.name }.let {
+                    if (firstPageOnly) listOfNotNull(it.minWithOrNull(NaturalFileOrder))
+                    else it.sortedWith(NaturalFileOrder).toList()
+                }
+                return ImageStreams(names, { page -> archive.getInputStream(archive.getEntry(names[page])) }, archive::close)
+            } catch (error: Throwable) { archive.close(); throw error }
+        }
     }
 }
+
+private data class ImageStreams(
+    val labels: List<String>,
+    val open: (Int) -> InputStream,
+    val close: () -> Unit = {},
+)

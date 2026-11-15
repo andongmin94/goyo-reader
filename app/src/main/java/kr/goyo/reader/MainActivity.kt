@@ -14,28 +14,23 @@ import kr.goyo.reader.ui.MinViewerTheme
 class MainActivity : FragmentActivity() {
     private val model: LibraryViewModel by viewModels()
     var volumeKeyHandler: ((Boolean) -> Unit)? = null
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent { MinViewerTheme { MinViewerApp(model, this) } }
-        if (savedInstanceState == null) importIntent(intent)
+        if (savedInstanceState == null) openIntent(intent)
     }
-
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); importIntent(intent) }
-
+    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); openIntent(intent) }
     @Suppress("DEPRECATION")
-    private fun importIntent(intent: Intent?) {
+    private fun openIntent(intent: Intent?) {
         val uri = when (intent?.action) {
             Intent.ACTION_VIEW -> intent.data
             Intent.ACTION_SEND -> intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
             else -> null
         }
-        if (uri?.scheme == "content") model.selectFiles(listOf(uri), openAfterImport = true)
+        if (uri?.scheme == "content") model.openUri(uri)
     }
-
     override fun onStop() { model.flushPosition(); super.onStop() }
-
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val handler = volumeKeyHandler
         if (handler != null && (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) {
@@ -44,11 +39,8 @@ class MainActivity : FragmentActivity() {
         }
         return super.onKeyDown(keyCode, event)
     }
-
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (volumeKeyHandler != null && (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) {
-            return true
-        }
+        if (volumeKeyHandler != null && (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) return true
         return super.onKeyUp(keyCode, event)
     }
 }
