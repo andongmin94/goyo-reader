@@ -86,3 +86,4 @@ class AutoReadingTest {
         } finally { bitmap.recycle() }
         return file
     }
+}
