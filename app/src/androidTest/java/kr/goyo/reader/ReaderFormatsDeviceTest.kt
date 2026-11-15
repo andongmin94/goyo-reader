@@ -11,7 +11,6 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
-import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
@@ -119,11 +118,11 @@ class ReaderFormatsDeviceTest {
         compose.onNodeWithText("검색어").performTextReplacement("표적문장")
         compose.onNodeWithText("검색", substring = false).performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(hasText("검색 결과 80개")).fetchSemanticsNodes().isNotEmpty() }
-        // Android consumes Back for the IME first. Close it before dismissing the sheet.
-        Espresso.closeSoftKeyboard()
-        Espresso.pressBack()
+        // Follow a real search result; this dismisses the search window and its IME.
+        compose.onNodeWithText("1번째 결과").performClick()
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("본문에서 찾기")).fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithText("검색어").assertDoesNotExist()
+        compose.onNodeWithContentDescription("읽기 도구 열기").performClick()
         compose.onNodeWithContentDescription("책갈피 추가").performClick()
         compose.onNodeWithText("책갈피 이름").performTextReplacement("다시 읽기")
         compose.onNodeWithText("저장").performClick()
