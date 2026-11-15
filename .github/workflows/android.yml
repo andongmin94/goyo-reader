@@ -24,26 +24,34 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Package exact build source
+        run: git archive --format=zip --output="$RUNNER_TEMP/min-viewer-source.zip" HEAD
+      - uses: actions/upload-artifact@v5
+        with:
+          name: min-viewer-source
+          path: ${{ runner.temp }}/min-viewer-source.zip
+          retention-days: 7
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
       - name: Install Android SDK
-        run: sdkmanager 'platforms;android-37' 'build-tools;37.0.0'
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" "build-tools;37.0.0"'
       - name: Test, lint and build
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: min-viewer-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: android-reports
           path: |
