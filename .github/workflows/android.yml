@@ -45,7 +45,8 @@ jobs:
           disable-animations: true
           script: |
             ./gradlew :app:connectedDebugAndroidTest
-            if adb shell test -d /sdcard/Android/data/kr.goyo.reader/files/screenshots; then adb pull /sdcard/Android/data/kr.goyo.reader/files/screenshots app/build/outputs/device-screenshots; fi
+            mkdir -p app/build/outputs/device-screenshots
+            adb pull /sdcard/Download/min-viewer-settings.png app/build/outputs/device-screenshots/spec-settings-device.png
       - name: Upload APK
         uses: actions/upload-artifact@v5
         with:

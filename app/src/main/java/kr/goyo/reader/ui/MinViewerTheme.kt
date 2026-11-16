@@ -11,18 +11,26 @@ import java.util.Locale
 @Composable
 fun MinViewerTheme(content: @Composable () -> Unit) {
     val colors = if (isSystemInDarkTheme()) darkColorScheme(
-        primary = Color(0xFF7190FF), onPrimary = Color(0xFF06164B),
-        primaryContainer = Color(0xFF162653), onPrimaryContainer = Color(0xFFDCE5FF),
-        background = Color(0xFF151619), surface = Color(0xFF1E2024),
-        onBackground = Color(0xFFF4F5F7), onSurface = Color(0xFFF4F5F7),
-        onSurfaceVariant = Color(0xFFA7ABB4), outlineVariant = Color(0xFF353840),
+        primary = Color(0xFF819BFF), onPrimary = Color(0xFF00175E),
+        primaryContainer = Color(0xFF243665), onPrimaryContainer = Color(0xFFDDE5FF),
+        secondary = Color(0xFFBDBDBF), secondaryContainer = Color(0xFF37383B),
+        onSecondaryContainer = Color(0xFFE6E6E8),
+        background = Color(0xFF191A1C), surface = Color(0xFF242527),
+        onBackground = Color(0xFFF3F3F3), onSurface = Color(0xFFF3F3F3),
+        onSurfaceVariant = Color(0xFFB5B5B8), outline = Color(0xFF88898D), outlineVariant = Color(0xFF414245),
+        surfaceVariant = Color(0xFF323335), surfaceTint = Color.Transparent,
+        surfaceContainerLowest = Color(0xFF141517), surfaceContainerLow = Color(0xFF202123),
+        surfaceContainer = Color(0xFF27282A), surfaceContainerHigh = Color(0xFF303133), surfaceContainerHighest = Color(0xFF393A3C),
     ) else lightColorScheme(
         primary = Color(0xFF0035FF), onPrimary = Color.White,
         primaryContainer = Color(0xFFEDF1FF), onPrimaryContainer = Color(0xFF0035FF),
+        secondary = Color(0xFF565656), secondaryContainer = Color(0xFFECECEC), onSecondaryContainer = Color(0xFF252525),
         background = Color.White, surface = Color.White,
-        onBackground = Color(0xFF202124), onSurface = Color(0xFF202124),
-        onSurfaceVariant = Color(0xFF696F7A), outlineVariant = Color(0xFFE4E6EB),
-        surfaceVariant = Color(0xFFF5F6F8), surfaceTint = Color.Transparent,
+        onBackground = Color(0xFF252525), onSurface = Color(0xFF252525),
+        onSurfaceVariant = Color(0xFF717171), outline = Color(0xFF8C8C8C), outlineVariant = Color(0xFFDEDEDE),
+        surfaceVariant = Color(0xFFF0F0F0), surfaceTint = Color.Transparent,
+        surfaceContainerLowest = Color.White, surfaceContainerLow = Color(0xFFFAFAFA),
+        surfaceContainer = Color(0xFFF4F4F4), surfaceContainerHigh = Color(0xFFEEEEEE), surfaceContainerHighest = Color(0xFFE7E7E7),
     )
     MaterialTheme(colorScheme = colors, content = content)
 }
