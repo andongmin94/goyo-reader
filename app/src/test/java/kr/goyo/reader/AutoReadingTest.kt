@@ -5,11 +5,13 @@ import android.graphics.Color
 import android.net.Uri
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.lifecycle.ViewModelProvider
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.runBlocking
 import kr.goyo.reader.model.*
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -26,12 +28,24 @@ import org.robolectric.annotation.LooperMode
 class AutoReadingTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     @get:Rule val temporary = TemporaryFolder()
+
+    @After fun closeTemporaryReadingAndResetItsPreferences() {
+        val model = ViewModelProvider(compose.activity)[LibraryViewModel::class.java]
+        compose.runOnIdle { model.close() }
+        compose.waitUntil(5_000) { model.library.value.openBookId == null }
+        runBlocking { model.repository.saveSettings(ReaderSettings()) }
+    }
+
     @Test(timeout = 60_000) fun textPagesFinishAutomaticReadingAtTheEnd() = checkCompletion(BookKind.TEXT, ReadingMode.PAGE)
     @Test fun textScrollFinishesAutomaticReadingAtTheEnd() = checkCompletion(BookKind.TEXT, ReadingMode.SCROLL)
     @Test fun comicPagesFinishAutomaticReadingAtTheEnd() = checkCompletion(BookKind.COMIC, ReadingMode.PAGE)
     @Test fun comicScrollFinishesAutomaticReadingAtTheEnd() = checkCompletion(BookKind.COMIC, ReadingMode.SCROLL)
     private fun checkCompletion(kind: BookKind, mode: ReadingMode) {
         val repository = (compose.activity.application as MinViewerApplication).library
+        // Seed a closed recent record only after startup has finished reading persisted state.
+        // openFile now marks a document as active, so fixture setup must explicitly close it.
+        compose.waitUntil(10_000) { compose.onAllNodes(hasContentDescription("파일")).fetchSemanticsNodes().isNotEmpty() }
+        compose.runOnIdle { }
         val source = if (kind == BookKind.TEXT) temporary.newFile("automatic-reading.txt").apply {
             writeText("마지막까지 읽은 뒤 자동 읽기는 정상적으로 끝나야 합니다. 0123456789.\n".repeat(180))
         } else comicFixture()
@@ -40,7 +54,7 @@ class AutoReadingTest {
             val opened = repository.openFile(Uri.fromFile(source)).book
             val end = if (kind == BookKind.TEXT) ReadingPosition(index = source.readText().lastIndex, progress = 1f)
                 else ReadingPosition(index = 1, offset = 1f, progress = 1f)
-            repository.updatePosition(opened.id, end)
+            repository.closeReading(opened.id, end) { throw AssertionError(it) }.join()
             opened
         }
         compose.waitUntil(10_000) { compose.onAllNodes(hasContentDescription("최근")).fetchSemanticsNodes().isNotEmpty() }
