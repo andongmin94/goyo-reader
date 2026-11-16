@@ -29,24 +29,27 @@ class HardwareSettingsDeviceTest {
         compose.waitUntil(5_000) { model.library.value.settings.fontSizeSp == 19f }
         compose.onNodeWithText("오른쪽에서 왼쪽으로 읽기").assertIsOff().performClick()
         compose.waitUntil(5_000) { model.library.value.settings.rightToLeft }
-        compose.onNodeWithText("오른쪽에서 왼쪽으로 읽기").assertIsOn()
-        compose.waitForIdle()
-        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
-        val directory = File(requireNotNull(compose.activity.getExternalFilesDir(null)), "screenshots").apply { mkdirs() }
-        val screenshot = File(directory, "spec-settings-device.png")
-        val bitmap = checkNotNull(automation.takeScreenshot())
         try {
-            screenshot.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
-        } finally { bitmap.recycle() }
-        // AGP cleans up test applications. Export this diagnostic to the emulator's shared
-        // Downloads before teardown; CI pulls it unconditionally, so missing captures fail.
-        val copied = ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(
-            "cp '${screenshot.absolutePath}' /sdcard/Download/min-viewer-settings.png && echo copied"
-        )).bufferedReader().use { it.readText().trim() }
-        assertEquals("copied", copied)
-        compose.onNodeWithText("오른쪽에서 왼쪽으로 읽기").performClick()
-        compose.waitUntil(5_000) { !model.library.value.settings.rightToLeft }
-        compose.onNodeWithText("오른쪽에서 왼쪽으로 읽기").assertIsOff()
-        assertEquals(19f, model.library.value.settings.fontSizeSp, 0f)
+            compose.onNodeWithText("오른쪽에서 왼쪽으로 읽기").assertIsOn()
+            compose.waitForIdle()
+            val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+            val directory = File(requireNotNull(compose.activity.getExternalFilesDir(null)), "screenshots").apply { mkdirs() }
+            val screenshot = File(directory, "spec-settings-device.png")
+            val bitmap = checkNotNull(automation.takeScreenshot())
+            try {
+                screenshot.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+            } finally { bitmap.recycle() }
+            // executeShellCommand executes a program, not shell syntax such as && or quotes.
+            // Export before AGP removes the test app; the required CI adb pull verifies it.
+            ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(
+                "cp ${screenshot.absolutePath} /sdcard/Download/min-viewer-settings.png"
+            )).use { it.readBytes() }
+            assertEquals(19f, model.library.value.settings.fontSizeSp, 0f)
+        } finally {
+            // A diagnostic failure must not leave RTL enabled for the later swipe tests.
+            compose.onNodeWithText("오른쪽에서 왼쪽으로 읽기").performClick()
+            compose.waitUntil(5_000) { !model.library.value.settings.rightToLeft }
+            compose.onNodeWithText("오른쪽에서 왼쪽으로 읽기").assertIsOff()
+        }
     }
 }
