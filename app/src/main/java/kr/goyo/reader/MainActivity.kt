@@ -8,11 +8,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.ViewModelProvider
 import kr.goyo.reader.ui.MinViewerApp
 import kr.goyo.reader.ui.MinViewerTheme
 
 class MainActivity : FragmentActivity() {
-    private val model: LibraryViewModel by viewModels()
+    // Use this Application, not the process-wide factory's first cached Application.
+    private val model: LibraryViewModel by viewModels { ViewModelProvider.AndroidViewModelFactory(application) }
     var volumeKeyHandler: ((Boolean) -> Unit)? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
