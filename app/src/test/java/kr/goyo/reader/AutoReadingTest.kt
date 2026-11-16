@@ -32,7 +32,7 @@ class AutoReadingTest {
     @After fun closeTemporaryReadingAndResetItsPreferences() {
         val model = ViewModelProvider(compose.activity)[LibraryViewModel::class.java]
         compose.runOnIdle { model.close() }
-        compose.waitUntil(5_000) { model.library.value.openBookId == null }
+        compose.waitUntil(5_000) { compose.runOnIdle { model.library.value.openBookId == null } }
         runBlocking { model.repository.saveSettings(ReaderSettings()) }
     }
 
@@ -41,11 +41,9 @@ class AutoReadingTest {
     @Test fun comicPagesFinishAutomaticReadingAtTheEnd() = checkCompletion(BookKind.COMIC, ReadingMode.PAGE)
     @Test fun comicScrollFinishesAutomaticReadingAtTheEnd() = checkCompletion(BookKind.COMIC, ReadingMode.SCROLL)
     private fun checkCompletion(kind: BookKind, mode: ReadingMode) {
-        val repository = (compose.activity.application as MinViewerApplication).library
-        // Seed a closed recent record only after startup has finished reading persisted state.
-        // openFile now marks a document as active, so fixture setup must explicitly close it.
+        val model = ViewModelProvider(compose.activity)[LibraryViewModel::class.java]
+        val repository = model.repository
         compose.waitUntil(10_000) { compose.onAllNodes(hasContentDescription("파일")).fetchSemanticsNodes().isNotEmpty() }
-        compose.runOnIdle { }
         val source = if (kind == BookKind.TEXT) temporary.newFile("automatic-reading.txt").apply {
             writeText("마지막까지 읽은 뒤 자동 읽기는 정상적으로 끝나야 합니다. 0123456789.\n".repeat(180))
         } else comicFixture()
@@ -57,33 +55,39 @@ class AutoReadingTest {
             repository.closeReading(opened.id, end) { throw AssertionError(it) }.join()
             opened
         }
-        compose.waitUntil(10_000) { compose.onAllNodes(hasContentDescription("최근")).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithContentDescription("최근").performClick()
-        compose.waitUntil(10_000) { compose.onAllNodes(hasText(book.title)).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText(book.title).performClick()
-        compose.waitUntil(10_000) {
-            val ready = if (kind == BookKind.TEXT) hasContentDescription("본문 검색") and isEnabled()
-                else hasContentDescription("2쪽 · 2.png")
-            compose.onAllNodes(ready).fetchSemanticsNodes().isNotEmpty()
-        }
-        compose.waitForIdle()
-        compose.mainClock.autoAdvance = false
         try {
-            compose.onNodeWithContentDescription("자동 읽기 시작").performClick()
-            compose.mainClock.advanceTimeBy(1_250)
+            compose.waitUntil(10_000) { compose.onAllNodes(hasContentDescription("최근")).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithContentDescription("최근").performClick()
+            compose.waitUntil(10_000) { compose.onAllNodes(hasText(book.title)).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText(book.title).performClick()
+            compose.waitUntil(10_000) {
+                val ready = if (kind == BookKind.TEXT) hasContentDescription("본문 검색") and isEnabled()
+                    else hasContentDescription("2쪽 · 2.png")
+                compose.onAllNodes(ready).fetchSemanticsNodes().isNotEmpty()
+            }
             compose.waitForIdle()
-            compose.onNodeWithContentDescription("자동 읽기 정지").assertDoesNotExist()
-            compose.onNodeWithContentDescription("읽기 도구 열기").performClick()
-            compose.mainClock.advanceTimeByFrame()
-            compose.onNodeWithContentDescription("자동 읽기 시작").assertIsDisplayed()
-            compose.onNodeWithContentDescription("이전 쪽").performClick()
-            compose.mainClock.advanceTimeBy(600)
-            compose.waitForIdle()
-            compose.onNodeWithContentDescription("자동 읽기 시작").performClick()
-            compose.mainClock.advanceTimeByFrame()
-            compose.onNodeWithContentDescription("자동 읽기 정지").assertIsDisplayed().performClick()
-            compose.mainClock.advanceTimeByFrame()
-        } finally { compose.mainClock.autoAdvance = true }
+            compose.mainClock.autoAdvance = false
+            try {
+                compose.onNodeWithContentDescription("자동 읽기 시작").performClick()
+                compose.mainClock.advanceTimeBy(1_250)
+                compose.waitForIdle()
+                compose.onNodeWithContentDescription("자동 읽기 정지").assertDoesNotExist()
+                compose.onNodeWithContentDescription("읽기 도구 열기").performClick()
+                compose.mainClock.advanceTimeByFrame()
+                compose.onNodeWithContentDescription("자동 읽기 시작").assertIsDisplayed()
+                compose.onNodeWithContentDescription("이전 쪽").performClick()
+                compose.mainClock.advanceTimeBy(600)
+                compose.waitForIdle()
+                compose.onNodeWithContentDescription("자동 읽기 시작").performClick()
+                compose.mainClock.advanceTimeByFrame()
+                compose.onNodeWithContentDescription("자동 읽기 정지").assertIsDisplayed().performClick()
+                compose.mainClock.advanceTimeByFrame()
+            } finally { compose.mainClock.autoAdvance = true }
+        } catch (failure: Throwable) {
+            println("AUTO_STATE kind=$kind mode=$mode ready=${model.ready.value} opening=${model.opening.value} session=${model.session.value?.book} error=${model.error.value} library=${model.library.value}")
+            println(compose.onRoot().printToString())
+            throw failure
+        }
     }
     private fun comicFixture(): File {
         val file = temporary.newFile("automatic-reading.cbz")

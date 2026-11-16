@@ -31,39 +31,35 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     val opening = MutableStateFlow(false)
     private var navigation: Job? = null
     private var openingJob: Job? = null
-    private var startupJob: Job? = null
     private var started = false
+    private var hasOpenRequest = false
     private val positionChanges = MutableStateFlow<Pair<String, ReadingPosition>?>(null)
     private val latestPositions = mutableMapOf<String, ReadingPosition>()
     init {
-        viewModelScope.launch {
-            repository.state.catch { error.value = "독서 기록을 불러오지 못했습니다: ${it.message}"; ready.value = true }
-                .collect { state ->
-                    _library.value = state
-                    if (!ready.value) {
-                        ready.value = true
-                        navigate(state.folderPath)
-                    }
-                }
-        }
         viewModelScope.launch {
             // Read the current snapshot, not an older sampled position after a close/switch.
             positionChanges.filterNotNull().sample(500).collect { flushPosition() }
         }
     }
 
-    /** Called once per ViewModel. A fresh external open takes precedence over automatic resume. */
+    /** Select automatic resume from the first loaded snapshot, before exposing the browser.
+     * A later explicit document request must never be reinterpreted as startup state. */
     fun start(uri: Uri? = null) {
         if (started) return
         started = true
-        startupJob = viewModelScope.launch {
-            ready.first { it }
-            startupJob = null
-            if (uri != null) openUri(uri)
-            else {
-                val state = library.value
-                state.books.firstOrNull { it.id == state.openBookId }?.let(::open)
-            }
+        viewModelScope.launch {
+            repository.state.catch { error.value = "독서 기록을 불러오지 못했습니다: ${it.message}"; ready.value = true }
+                .collect { state ->
+                    _library.value = state
+                    if (!ready.value) {
+                        navigate(state.folderPath)
+                        if (!hasOpenRequest) {
+                            if (uri != null) openUri(uri)
+                            else state.books.firstOrNull { it.id == state.openBookId }?.let(::open)
+                        }
+                        ready.value = true
+                    }
+                }
         }
     }
 
@@ -105,8 +101,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     }
     fun toggleFavorite() { task { repository.toggleFavorite(browser.value.path) } }
     private fun openTask(block: suspend () -> OpenedDocument) {
-        startupJob?.cancel()
-        startupJob = null
+        hasOpenRequest = true
         flushPosition()
         val previous = openingJob
         opening.value = true
