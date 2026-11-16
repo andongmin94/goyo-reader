@@ -1,6 +1,7 @@
 package kr.goyo.reader
 
 import android.graphics.Bitmap
+import android.os.ParcelFileDescriptor
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
@@ -30,12 +31,19 @@ class HardwareSettingsDeviceTest {
         compose.waitUntil(5_000) { model.library.value.settings.rightToLeft }
         compose.onNodeWithText("오른쪽에서 왼쪽으로 읽기").assertIsOn()
         compose.waitForIdle()
-        // A modal is a separate surface. A window-independent screen capture includes it.
-        val bitmap = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val directory = File(requireNotNull(compose.activity.getExternalFilesDir(null)), "screenshots").apply { mkdirs() }
+        val screenshot = File(directory, "spec-settings-device.png")
+        val bitmap = checkNotNull(automation.takeScreenshot())
         try {
-            val directory = File(requireNotNull(compose.activity.getExternalFilesDir(null)), "screenshots").apply { mkdirs() }
-            File(directory, "spec-settings-device.png").outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+            screenshot.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
         } finally { bitmap.recycle() }
+        // AGP cleans up test applications. Export this diagnostic to the emulator's shared
+        // Downloads before teardown; CI pulls it unconditionally, so missing captures fail.
+        val copied = ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(
+            "cp '${screenshot.absolutePath}' /sdcard/Download/min-viewer-settings.png && echo copied"
+        )).bufferedReader().use { it.readText().trim() }
+        assertEquals("copied", copied)
         compose.onNodeWithText("오른쪽에서 왼쪽으로 읽기").performClick()
         compose.waitUntil(5_000) { !model.library.value.settings.rightToLeft }
         compose.onNodeWithText("오른쪽에서 왼쪽으로 읽기").assertIsOff()
