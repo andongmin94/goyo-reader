@@ -28,12 +28,16 @@ import org.robolectric.annotation.LooperMode
 class AutoReadingTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     @get:Rule val temporary = TemporaryFolder()
+    private var fixture: BookRecord? = null
 
-    @After fun closeTemporaryReadingAndResetItsPreferences() {
+    @After fun removeTemporaryReadingRecordAndResetItsPreferences() {
         val model = ViewModelProvider(compose.activity)[LibraryViewModel::class.java]
         compose.runOnIdle { model.close() }
         compose.waitUntil(5_000) { compose.runOnIdle { model.library.value.openBookId == null } }
-        runBlocking { model.repository.saveSettings(ReaderSettings()) }
+        runBlocking {
+            fixture?.let { model.repository.removeBook(it) }
+            model.repository.saveSettings(ReaderSettings())
+        }
     }
 
     @Test(timeout = 60_000) fun textPagesFinishAutomaticReadingAtTheEnd() = checkCompletion(BookKind.TEXT, ReadingMode.PAGE)
@@ -49,7 +53,7 @@ class AutoReadingTest {
         } else comicFixture()
         val book = runBlocking {
             repository.saveSettings(ReaderSettings(readingMode = mode, autoPageSeconds = 1))
-            val opened = repository.openFile(Uri.fromFile(source)).book
+            val opened = repository.openFile(Uri.fromFile(source)).book.also { fixture = it }
             val end = if (kind == BookKind.TEXT) ReadingPosition(index = source.readText().lastIndex, progress = 1f)
                 else ReadingPosition(index = 1, offset = 1f, progress = 1f)
             repository.closeReading(opened.id, end) { throw AssertionError(it) }.join()
