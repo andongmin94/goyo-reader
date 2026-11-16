@@ -3,7 +3,6 @@ package kr.goyo.reader
 import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -20,7 +19,7 @@ data class BrowserState(
 )
 
 @OptIn(FlowPreview::class)
-class LibraryViewModel(application: Application, private val savedState: SavedStateHandle) : AndroidViewModel(application) {
+class LibraryViewModel(application: Application) : AndroidViewModel(application) {
     val repository = (application as MinViewerApplication).library
     private val _library = MutableStateFlow(LibraryState())
     val library = _library.asStateFlow()
@@ -32,6 +31,8 @@ class LibraryViewModel(application: Application, private val savedState: SavedSt
     val opening = MutableStateFlow(false)
     private var navigation: Job? = null
     private var openingJob: Job? = null
+    private var startupJob: Job? = null
+    private var started = false
     private val positionChanges = MutableStateFlow<Pair<String, ReadingPosition>?>(null)
     private val latestPositions = mutableMapOf<String, ReadingPosition>()
     init {
@@ -42,20 +43,30 @@ class LibraryViewModel(application: Application, private val savedState: SavedSt
                     if (!ready.value) {
                         ready.value = true
                         navigate(state.folderPath)
-                        state.books.firstOrNull { it.id == savedState.get<String>("openBookId") }?.let(::open)
                     }
                 }
         }
         viewModelScope.launch {
-            positionChanges.filterNotNull().sample(500).collect { (id, position) ->
-                try { repository.updatePosition(id, position) }
-                catch (cause: Exception) {
-                    if (cause is CancellationException) throw cause
-                    error.value = "읽던 위치를 저장하지 못했습니다: ${cause.message}"
-                }
+            // Read the current snapshot, not an older sampled position after a close/switch.
+            positionChanges.filterNotNull().sample(500).collect { flushPosition() }
+        }
+    }
+
+    /** Called once per ViewModel. A fresh external open takes precedence over automatic resume. */
+    fun start(uri: Uri? = null) {
+        if (started) return
+        started = true
+        startupJob = viewModelScope.launch {
+            ready.first { it }
+            startupJob = null
+            if (uri != null) openUri(uri)
+            else {
+                val state = library.value
+                state.books.firstOrNull { it.id == state.openBookId }?.let(::open)
             }
         }
     }
+
     fun navigate(path: List<FolderLocation>) {
         navigation?.cancel()
         browser.value = BrowserState(path = path, loading = true)
@@ -94,19 +105,22 @@ class LibraryViewModel(application: Application, private val savedState: SavedSt
     }
     fun toggleFavorite() { task { repository.toggleFavorite(browser.value.path) } }
     private fun openTask(block: suspend () -> OpenedDocument) {
-        if (opening.value) return
+        startupJob?.cancel()
+        startupJob = null
         flushPosition()
+        val previous = openingJob
         opening.value = true
         openingJob = viewModelScope.launch {
             try {
+                // An explicit new intent must not be discarded while auto-resume is preparing.
+                previous?.cancelAndJoin()
+                opening.value = true
                 val prepared = block()
                 val latest = latestPositions[prepared.book.id]
                 val opened = if (latest != null && prepared.input is ReaderInput.LocalFile)
                     prepared.copy(book = prepared.book.copy(position = latest)) else prepared
-                // A new explicit image selection supersedes the previous folder position.
                 latestPositions[opened.book.id] = opened.book.position
                 session.value = opened
-                savedState["openBookId"] = opened.book.id
                 positionChanges.value = opened.book.id to opened.book.position
             } catch (cause: Exception) {
                 if (cause is CancellationException) throw cause
@@ -115,9 +129,18 @@ class LibraryViewModel(application: Application, private val savedState: SavedSt
         }
     }
     fun cancelOpen() { openingJob?.cancel() }
-    fun close() { flushPosition(); positionChanges.value = null; session.value = null; savedState["openBookId"] = null }
+    fun close() {
+        val current = session.value ?: return
+        val position = latestPosition(current.book)
+        positionChanges.value = null
+        session.value = null
+        repository.closeReading(current.book.id, position) {
+            error.value = "읽던 위치를 저장하지 못했습니다: ${it.message}"
+        }
+    }
     fun reportPosition(id: String, position: ReadingPosition) {
-        val input = session.value?.takeIf { it.book.id == id }?.input
+        // A disposed reader must not overwrite the position saved by close().
+        val input = session.value?.takeIf { it.book.id == id }?.input ?: return
         val anchored = if (input is ReaderInput.Images) input.anchor(position) else position
         latestPositions[id] = anchored
         positionChanges.value = id to anchored

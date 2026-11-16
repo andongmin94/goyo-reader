@@ -17,6 +17,7 @@ import java.io.File
 import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -28,6 +29,13 @@ import org.junit.runner.RunWith
 class ReaderFormatsDeviceTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     @get:Rule val temporary = TemporaryFolder(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir)
+
+    @After fun closeTemporaryDocumentBeforeDeletingItsSource() {
+        val model = ViewModelProvider(compose.activity)[LibraryViewModel::class.java]
+        compose.runOnIdle { model.close() }
+        compose.waitUntil(5_000) { model.library.value.openBookId == null }
+    }
+
     @Test fun pdfOpensRendersAndResumesFromTheDirectory() {
         val pdf = temporary.newFile("교재.pdf")
         val document = PdfDocument()
@@ -69,7 +77,6 @@ class ReaderFormatsDeviceTest {
         waitImage("2쪽 · 10.png", Color.BLUE)
         compose.onNodeWithContentDescription("폴더로 돌아가기").performClick()
         waitText("2.png")
-        // Explicitly selecting an earlier image must beat the previous resume position.
         compose.onNodeWithText("2.png").performClick()
         waitImage("1쪽 · 2.png", Color.RED)
         compose.onNodeWithContentDescription("폴더로 돌아가기").performClick()
@@ -121,7 +128,6 @@ class ReaderFormatsDeviceTest {
         compose.onNodeWithText("검색어").performTextReplacement("표적문장")
         compose.onNodeWithText("검색", substring = false).performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(hasText("검색 결과 80개")).fetchSemanticsNodes().isNotEmpty() }
-        // Follow a real search result; this dismisses the search window and its IME.
         compose.onNodeWithText("1번째 결과").performClick()
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("본문에서 찾기")).fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithText("검색어").assertDoesNotExist()
@@ -150,7 +156,6 @@ class ReaderFormatsDeviceTest {
             up(0)
             up(1)
         }
-        // The toolbar can also scroll horizontally; only the image pager owns this content.
         val pager = compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange)
             and hasAnyDescendant(hasContentDescription("1쪽 · 1.png")))
         pager.assert(SemanticsMatcher("Page swiping is disabled while zoomed") { !it.config.contains(SemanticsActions.ScrollBy) })
