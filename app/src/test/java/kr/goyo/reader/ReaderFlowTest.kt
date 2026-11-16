@@ -3,6 +3,7 @@ package kr.goyo.reader
 import android.app.Activity
 import android.net.Uri
 import android.view.KeyEvent
+import androidx.datastore.dataStoreFile
 import androidx.lifecycle.ViewModelProvider
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -10,7 +11,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
+import kr.goyo.reader.data.LibrarySerializer
 import kr.goyo.reader.model.ReaderSettings
 import org.junit.After
 import org.junit.Assert.*
@@ -79,16 +80,17 @@ class ReaderFlowTest {
         compose.onNodeWithContentDescription("책갈피 추가").performClick()
         compose.onNode(hasSetTextAction()).performTextReplacement("다시 읽을 곳")
         compose.onNodeWithText("저장").performClick()
-        // Wait for this book's named bookmark, not an unrelated pre-existing history entry.
         compose.waitUntil(5_000) {
             compose.runOnIdle {
                 assertNull("Bookmark save must not report an error", model.error.value)
                 model.library.value.bookmarks.any { it.bookId == bookId && it.title == "다시 읽을 곳" }
             }
         }
-        val persisted = runBlocking { withTimeout(5_000) {
-            repository.state.first { state -> state.bookmarks.any { it.bookId == bookId && it.title == "다시 읽을 곳" } }
-        } }
+        // Inspect the durable file after the UI observes the committed bookmark. A blocking
+        // Flow.first() here can wait on the paused main looper it is preventing from draining.
+        val persisted = runBlocking {
+            compose.activity.applicationContext.dataStoreFile("documents.json").inputStream().use { LibrarySerializer.readFrom(it) }
+        }
         val saved = persisted.bookmarks.single { it.bookId == bookId && it.title == "다시 읽을 곳" }
         val book = persisted.books.single { it.id == bookId }
         assertEquals(book.id, saved.bookId)
