@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -71,75 +72,83 @@ fun HomeScreen(
     BackHandler(tab != "files" || query.isNotEmpty() || browser.path.isNotEmpty()) {
         when { tab != "files" -> tab = "files"; query.isNotEmpty() -> query = ""; else -> onUp() }
     }
-    Scaffold(containerColor = colors.background, topBar = {
-        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("민뷰어", fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.6).sp)
-                HardwareLegend("MIN / FILE READER")
+    // One continuous device face. Relief belongs to controls, not to floating screen frames.
+    Scaffold(modifier = Modifier.testTag("browser-screen"), containerColor = colors.surface, topBar = {
+        Surface(color = colors.surface) {
+            Row(Modifier.fillMaxWidth().statusBarsPadding()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("민뷰어", Modifier.weight(1f), fontSize = 22.sp, lineHeight = 28.sp,
+                    fontWeight = FontWeight.SemiBold, letterSpacing = (-0.6).sp)
+                HardwareKey(Icons.Outlined.FolderOpen, "폴더 선택", { tab = "files"; onFolder() }, primary = true)
+                HardwareKey(Icons.Outlined.Tune, "독서 설정", onSettings)
             }
-            HardwareKey(Icons.Outlined.FolderOpen, "폴더 선택", { tab = "files"; onFolder() }, primary = true)
-            HardwareKey(Icons.Outlined.Tune, "독서 설정", onSettings)
         }
     }, bottomBar = {
-        Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Row(Modifier.fillMaxWidth().hardwarePanel(18.dp).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                listOf("files" to "파일", "recent" to "최근", "favorites" to "즐겨찾기").forEach { (value, label) ->
-                    HardwareKey(null, label, { tab = value }, Modifier.weight(1f), active = tab == value, showLabel = true, stacked = true)
+        Surface(color = colors.surface) {
+            Column(Modifier.fillMaxWidth().testTag("browser-navigation").navigationBarsPadding()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
+                HardwareRule()
+                Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("files" to "파일", "recent" to "최근", "favorites" to "즐겨찾기").forEach { (value, label) ->
+                        HardwareKey(null, label, { tab = value }, Modifier.weight(1f), active = tab == value, showLabel = true)
+                    }
                 }
             }
         }
     }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            HardwarePanel("01", when (tab) { "files" -> "DIRECTORY"; "recent" -> "RECENT FILES"; else -> "FAVORITES" },
-                Modifier.padding(horizontal = 12.dp).fillMaxWidth()) {
-                if (tab == "files") {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onUp, enabled = browser.path.isNotEmpty()) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "상위 폴더", Modifier.size(18.dp)) }
-                        Row(Modifier.weight(1f).horizontalScroll(pathScroll), verticalAlignment = Alignment.CenterVertically) {
-                            Text("파일", Modifier.clickable { onNavigate(emptyList()) }.padding(horizontal = 6.dp, vertical = 14.dp), fontSize = 12.sp)
-                            browser.path.forEachIndexed { index, part ->
-                                Text("/", color = colors.onSurfaceVariant)
-                                Text(part.name, Modifier.clickable { onNavigate(browser.path.take(index + 1)) }.padding(horizontal = 6.dp, vertical = 14.dp),
-                                    fontSize = 12.sp, maxLines = 1, fontWeight = if (index == browser.path.lastIndex) FontWeight.SemiBold else FontWeight.Normal)
-                            }
-                        }
-                        IconButton(onFavorite, enabled = browser.path.isNotEmpty()) {
-                            Icon(if (favorite) Icons.Outlined.Star else Icons.Outlined.StarOutline,
-                                if (favorite) "즐겨찾기 해제" else "즐겨찾기 추가", Modifier.size(19.dp), tint = if (favorite) colors.primary else colors.onSurfaceVariant)
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            if (tab == "files") {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onUp, enabled = browser.path.isNotEmpty()) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "상위 폴더", Modifier.size(18.dp)) }
+                    Row(Modifier.weight(1f).horizontalScroll(pathScroll), verticalAlignment = Alignment.CenterVertically) {
+                        Text("파일", Modifier.clickable { onNavigate(emptyList()) }.padding(horizontal = 6.dp, vertical = 14.dp), fontSize = 12.sp)
+                        browser.path.forEachIndexed { index, part ->
+                            Text("/", color = colors.onSurfaceVariant)
+                            Text(part.name, Modifier.clickable { onNavigate(browser.path.take(index + 1)) }.padding(horizontal = 6.dp, vertical = 14.dp),
+                                fontSize = 12.sp, maxLines = 1, fontWeight = if (index == browser.path.lastIndex) FontWeight.SemiBold else FontWeight.Normal)
                         }
                     }
-                } else Text(if (tab == "recent") "최근 읽은 파일" else "즐겨찾는 폴더", style = MaterialTheme.typography.titleMedium)
-                HardwareSearchField(query, { query = it }, Icons.Outlined.Search, Icons.Outlined.Close)
-                if (tab == "files") Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        HardwareLed(!browser.loading && browser.error == null && browser.path.isNotEmpty(), Modifier.size(8.dp))
-                        Text("${visible.size} 항목", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = colors.onSurfaceVariant)
+                    IconButton(onFavorite, enabled = browser.path.isNotEmpty()) {
+                        Icon(if (favorite) Icons.Outlined.Star else Icons.Outlined.StarOutline,
+                            if (favorite) "즐겨찾기 해제" else "즐겨찾기 추가", Modifier.size(19.dp), tint = if (favorite) colors.primary else colors.onSurfaceVariant)
                     }
-                    Box {
-                        HardwareKey(null, when (sort) { FileSort.NAME -> "이름"; FileSort.SIZE -> "크기"; FileSort.MODIFIED -> "수정일" } + if (descending) " ↓" else " ↑",
-                            { sortMenu = true }, showLabel = true)
-                        DropdownMenu(sortMenu, { sortMenu = false }) {
-                            FileSort.entries.forEach { item -> DropdownMenuItem(
-                                text = { Text(when (item) { FileSort.NAME -> "이름순"; FileSort.SIZE -> "크기순"; FileSort.MODIFIED -> "수정일순" }) },
-                                onClick = { sort = item; sortMenu = false }) }
-                            DropdownMenuItem(text = { Text(if (descending) "오름차순" else "내림차순") }, onClick = { descending = !descending; sortMenu = false })
-                        }
-                    }
-                    HardwareKey(if (previews) Icons.Outlined.Image else Icons.AutoMirrored.Outlined.List,
-                        if (previews) "썸네일 끄기" else "썸네일 켜기", { previews = !previews }, active = previews)
-                    HardwareKey(Icons.Outlined.Refresh, "새로고침", onRefresh, enabled = !browser.loading)
                 }
+            } else Text(if (tab == "recent") "최근 읽은 파일" else "즐겨찾는 폴더",
+                Modifier.padding(horizontal = 16.dp, vertical = 12.dp), style = MaterialTheme.typography.titleMedium)
+            Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                HardwareSearchField(query, { query = it }, Icons.Outlined.Search, Icons.Outlined.Close)
             }
-            Column(Modifier.weight(1f).padding(horizontal = 12.dp).fillMaxWidth().hardwarePanel()) {
-                HardwareCaption("02", if (tab == "favorites") "FOLDERS" else "FILES", Modifier.padding(horizontal = 16.dp, vertical = 14.dp))
+            if (tab == "files") Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    HardwareLed(!browser.loading && browser.error == null && browser.path.isNotEmpty(), Modifier.size(8.dp))
+                    Text("${visible.size} 항목", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = colors.onSurfaceVariant)
+                }
+                Box {
+                    HardwareKey(null, when (sort) { FileSort.NAME -> "이름"; FileSort.SIZE -> "크기"; FileSort.MODIFIED -> "수정일" } + if (descending) " ↓" else " ↑",
+                        { sortMenu = true }, showLabel = true)
+                    DropdownMenu(sortMenu, { sortMenu = false }) {
+                        FileSort.entries.forEach { item -> DropdownMenuItem(
+                            text = { Text(when (item) { FileSort.NAME -> "이름순"; FileSort.SIZE -> "크기순"; FileSort.MODIFIED -> "수정일순" }) },
+                            onClick = { sort = item; sortMenu = false }) }
+                        DropdownMenuItem(text = { Text(if (descending) "오름차순" else "내림차순") }, onClick = { descending = !descending; sortMenu = false })
+                    }
+                }
+                HardwareKey(if (previews) Icons.Outlined.Image else Icons.AutoMirrored.Outlined.List,
+                    if (previews) "썸네일 끄기" else "썸네일 켜기", { previews = !previews }, active = previews)
+                HardwareKey(Icons.Outlined.Refresh, "새로고침", onRefresh, enabled = !browser.loading)
+            }
+            HardwareRule()
+            Column(Modifier.weight(1f).fillMaxWidth()) {
                 // Do not consume the saved position against an incomplete loading list.
-                if (tab == "files" && browser.loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+                if (tab == "files" && browser.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                 else lists.SaveableStateProvider("$tab:$pathKey") {
                     val scroll = rememberLazyListState()
-                    LazyColumn(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp)),
-                        state = scroll, contentPadding = PaddingValues(bottom = 12.dp)) {
+                    LazyColumn(Modifier.fillMaxSize().testTag("browser-file-list"), state = scroll,
+                        contentPadding = PaddingValues(bottom = 8.dp)) {
                         when (tab) {
                             "files" -> when {
                                 browser.error != null -> item {
@@ -158,7 +167,8 @@ fun HomeScreen(
                                 }
                                 else -> {
                                     if (browser.entries.any { it.image }) item {
-                                        Row(Modifier.fillMaxWidth().clickable(onClick = onReadImages).padding(horizontal = 16.dp, vertical = 13.dp),
+                                        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onReadImages)
+                                            .padding(horizontal = 16.dp, vertical = 10.dp),
                                             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                                             Icon(Icons.Outlined.Collections, null, Modifier.size(17.dp), tint = colors.primary)
                                             Text("이 폴더 이미지 연속 읽기", color = colors.primary, fontSize = 12.sp)
@@ -220,7 +230,7 @@ private fun FileRow(entry: FileEntry, previews: Boolean, load: suspend (FileEntr
     val date = remember(entry.modified) { if (entry.modified == 0L) "" else SimpleDateFormat("yyyy.MM.dd", Locale.ROOT).format(Date(entry.modified)) }
     val colors = MaterialTheme.colorScheme
     Row(Modifier.fillMaxWidth().clickable { if (entry.directory || entry.kind != null) open() else info() }
-        .padding(start = 16.dp, end = 4.dp, top = 9.dp, bottom = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+        .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(34.dp, 42.dp), contentAlignment = Alignment.Center) {
             val bitmap = preview
             if (bitmap != null) Image(bitmap.asImageBitmap(), "${entry.name} 미리보기", Modifier.fillMaxSize().hardwareWell(5.dp).padding(2.dp).clip(RoundedCornerShape(3.dp)), contentScale = ContentScale.Fit)
