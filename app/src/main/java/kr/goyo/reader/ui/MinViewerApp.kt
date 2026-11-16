@@ -36,8 +36,7 @@ fun MinViewerApp(model: LibraryViewModel, activity: MainActivity) {
             val opened = session
             if (!ready) CircularProgressIndicator(Modifier.align(Alignment.Center))
             else if (opened != null) key(opened) {
-                // Activity recreation retains the session but must use its latest reading position.
-                // Snapshot once: position reports must not recreate the active reader.
+                // Snapshot once; live position reports must not recreate the reader.
                 val book = remember(opened) { opened.book.copy(position = model.latestPosition(opened.book)) }
                 ReaderScreen(activity, book, opened.input, library.settings,
                     library.bookmarks.filter { it.bookId == opened.book.id }.sortedBy { it.createdAt },
@@ -56,7 +55,8 @@ fun MinViewerApp(model: LibraryViewModel, activity: MainActivity) {
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 80.dp))
         }
     }
-    if (settings) SettingsSheet(library.settings, model::updateSettings, { font.launch(arrayOf("*/*")) }, { settings = false })
+    if (settings) SettingsSheet(library.settings, model::updateSettings,
+        { font.launch(arrayOf("*/*")) }, { settings = false }, kind = session?.book?.kind)
     if (opening) AlertDialog(onDismissRequest = model::cancelOpen, title = { Text("파일 여는 중") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             LinearProgressIndicator(Modifier.fillMaxWidth())

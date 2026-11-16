@@ -47,6 +47,7 @@ jobs:
             ./gradlew :app:connectedDebugAndroidTest
             mkdir -p app/build/outputs/device-screenshots
             adb pull /sdcard/Download/min-viewer-settings.png app/build/outputs/device-screenshots/spec-settings-device.png
+            adb pull /sdcard/Download/min-viewer-formats app/build/outputs/device-screenshots/formats
       - name: Upload APK
         uses: actions/upload-artifact@v5
         with:

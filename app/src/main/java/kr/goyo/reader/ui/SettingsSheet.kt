@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
@@ -25,9 +26,17 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun SettingsSheet(settings: ReaderSettings, onChange: (ReaderSettings) -> Unit, onImportFont: () -> Unit, onDismiss: () -> Unit) {
+fun SettingsSheet(
+    settings: ReaderSettings,
+    onChange: (ReaderSettings) -> Unit,
+    onImportFont: () -> Unit,
+    onDismiss: () -> Unit,
+    kind: BookKind? = null,
+) {
     var customColors by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
+    val textOptions = kind == null || kind == BookKind.TEXT || kind == BookKind.EPUB
+    val shown = settings.forAppearance(kind ?: BookKind.TEXT, colors.surface.luminance() < 0.5f)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = colors.background) {
         LazyColumn(Modifier.fillMaxWidth().fillMaxHeight(0.9f), contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             item {
@@ -43,11 +52,13 @@ fun SettingsSheet(settings: ReaderSettings, onChange: (ReaderSettings) -> Unit, 
                         HardwareKey(null, "세로 스크롤", { onChange(settings.copy(readingMode = ReadingMode.SCROLL)) }, Modifier.weight(1f), showLabel = true, stacked = true, active = settings.readingMode == ReadingMode.SCROLL)
                     }
                     HardwareSwitch("오른쪽에서 왼쪽으로 읽기", settings.rightToLeft) { onChange(settings.copy(rightToLeft = it)) }
+                    if (!textOptions) Text("페이지의 원본 색상은 유지합니다. 다크모드는 주변 배경과 조작부에 적용됩니다.",
+                        style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                 }
             }
-            item {
+            if (textOptions) item {
                 HardwarePanel("02", "글자와 여백", Modifier.fillMaxWidth()) {
-                    Text("TXT·EPUB에 적용됩니다.", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    Text("TXT·재조판형 EPUB에 적용됩니다.", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     HardwareNumberStepper("글자 크기", settings.fontSizeSp.roundToInt(), 12..40, "sp") { onChange(settings.copy(fontSizeSp = it.toFloat())) }
                     FloatPreference("줄 간격", settings.lineSpacing, 1.1f..2.4f, { String.format(Locale.ROOT, "%.1f배", it) }) { onChange(settings.copy(lineSpacing = it)) }
                     FloatPreference("좌우 여백", settings.marginDp, 0f..48f, { "${it.roundToInt()} dp" }) { onChange(settings.copy(marginDp = it.roundToInt().toFloat())) }
@@ -61,14 +72,23 @@ fun SettingsSheet(settings: ReaderSettings, onChange: (ReaderSettings) -> Unit, 
                     TextButton(onClick = onImportFont) { Text("TTF / OTF 글꼴 가져오기") }
                 }
             }
-            item {
+            if (textOptions) item {
                 HardwarePanel("03", "종이와 글자 색", Modifier.fillMaxWidth()) {
+                    HardwareSwitch("본문도 시스템 테마 따르기", settings.followSystemTheme) { follow ->
+                        onChange(settings.copy(followSystemTheme = follow,
+                            backgroundColor = shown.backgroundColor, textColor = shown.textColor))
+                    }
+                    Text("색상을 직접 고르면 자동 전환을 끄고 선택한 색을 유지합니다.",
+                        color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        listOf(Triple("종이", 0xFFF6F2E9L, 0xFF262A27L), Triple("흰색", 0xFFFFFFFFL, 0xFF202124L), Triple("세피아", 0xFFE9DAC1L, 0xFF43382BL), Triple("밤", 0xFF202725L, 0xFFDBE2DCL), Triple("검정", 0xFF000000L, 0xFFCCCCCCL)).forEach { (label, bg, fg) ->
+                        listOf(Triple("종이", 0xFFF6F2E9L, 0xFF262A27L), Triple("흰색", 0xFFFFFFFFL, 0xFF202124L), Triple("세피아", 0xFFE9DAC1L, 0xFF43382BL), Triple("밤", 0xFF191A1CL, 0xFFE6E6E8L), Triple("검정", 0xFF000000L, 0xFFCCCCCCL)).forEach { (label, bg, fg) ->
+                            val selected = !settings.followSystemTheme && settings.backgroundColor == bg && settings.textColor == fg
                             Column(horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.widthIn(min = 48.dp).clickable { onChange(settings.copy(backgroundColor = bg, textColor = fg)) }.padding(3.dp)) {
+                                modifier = Modifier.widthIn(min = 48.dp).clickable {
+                                    onChange(settings.copy(followSystemTheme = false, backgroundColor = bg, textColor = fg))
+                                }.padding(3.dp)) {
                                 Surface(Modifier.size(44.dp, 52.dp), shape = RoundedCornerShape(9.dp), color = Color(bg),
-                                    border = BorderStroke(if (settings.backgroundColor == bg) 2.dp else 0.7.dp, if (settings.backgroundColor == bg) colors.primary else colors.outlineVariant)) {
+                                    border = BorderStroke(if (selected) 2.dp else 0.7.dp, if (selected) colors.primary else colors.outlineVariant)) {
                                     Box(contentAlignment = Alignment.Center) { Text("가", color = Color(fg), fontSize = 22.sp) }
                                 }
                                 Text(label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 6.dp))
@@ -107,7 +127,7 @@ fun SettingsSheet(settings: ReaderSettings, onChange: (ReaderSettings) -> Unit, 
                     HardwareNumberStepper("한 장당 읽는 시간", settings.autoPageSeconds, 2..40, "초") { onChange(settings.copy(autoPageSeconds = it)) }
                 }
             }
-            item {
+            if (kind == null || kind == BookKind.TEXT) item {
                 HardwarePanel("07", "TXT 인코딩", Modifier.fillMaxWidth()) {
                     Text("한글이 깨지면 파일에 맞는 인코딩을 선택하세요.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -121,15 +141,17 @@ fun SettingsSheet(settings: ReaderSettings, onChange: (ReaderSettings) -> Unit, 
         }
     }
     if (customColors) {
-        var background by remember { mutableStateOf("#%06X".format(settings.backgroundColor and 0xFFFFFF)) }
-        var foreground by remember { mutableStateOf("#%06X".format(settings.textColor and 0xFFFFFF)) }
+        var background by remember { mutableStateOf("#%06X".format(shown.backgroundColor and 0xFFFFFF)) }
+        var foreground by remember { mutableStateOf("#%06X".format(shown.textColor and 0xFFFFFF)) }
         fun parse(value: String): Long? = if (Regex("#[0-9a-fA-F]{6}").matches(value)) value.drop(1).toLong(16) or 0xFF000000L else null
         AlertDialog(onDismissRequest = { customColors = false }, title = { Text("독서 색상") }, text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(background, { background = it }, label = { Text("배경 (#RRGGBB)") }, singleLine = true)
                 OutlinedTextField(foreground, { foreground = it }, label = { Text("글자 (#RRGGBB)") }, singleLine = true)
             }
-        }, confirmButton = { TextButton(onClick = { onChange(settings.copy(backgroundColor = parse(background)!!, textColor = parse(foreground)!!)); customColors = false }, enabled = parse(background) != null && parse(foreground) != null) { Text("적용") } }, dismissButton = { TextButton(onClick = { customColors = false }) { Text("취소") } })
+        }, confirmButton = { TextButton(onClick = {
+            onChange(settings.copy(followSystemTheme = false, backgroundColor = parse(background)!!, textColor = parse(foreground)!!)); customColors = false
+        }, enabled = parse(background) != null && parse(foreground) != null) { Text("적용") } }, dismissButton = { TextButton(onClick = { customColors = false }) { Text("취소") } })
     }
 }
 

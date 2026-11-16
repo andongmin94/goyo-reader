@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -54,7 +55,8 @@ fun ReaderScreen(
     var position by remember(book.id) { mutableStateOf(initialPosition) }
     var progress by remember(book.id) { mutableFloatStateOf(initialPosition.progress.coerceIn(0f, 1f)) }
     var isSeeking by remember { mutableStateOf(false) }
-    var info by remember { mutableStateOf(ReaderInfo()) }
+    // ReaderInfo's general default is not evidence that a file has finished opening.
+    var info by remember(book.id) { mutableStateOf(ReaderInfo(current = 0, total = 0)) }
     var chrome by remember { mutableStateOf(true) }
     var auto by remember { mutableStateOf(false) }
     var sheet by remember { mutableStateOf<String?>(null) }
@@ -71,18 +73,19 @@ fun ReaderScreen(
         commands.emit(if (command is ReaderCommand.Seek && input is ReaderInput.Images)
             ReaderCommand.Seek(input.resolve(command.position)) else command)
     } }
-    val modalOpen = settingsVisible || sheet != null || pageDialog || bookmarkDialog
-    val activeAuto = auto && !isSeeking && !modalOpen && readError == null
-    val unit = if (book.kind == BookKind.EPUB) "위치" else "쪽"
-    val background = Color(settings.backgroundColor)
-    val ink = Color(settings.textColor)
     val colors = MaterialTheme.colorScheme
     val surface = colors.surface
+    val renderingSettings = settings.forAppearance(book.kind, surface.luminance() < 0.5f)
+    val background = Color(renderingSettings.backgroundColor)
+    val ink = Color(renderingSettings.textColor)
     val ready = info.total > 0 && readError == null
+    val modalOpen = settingsVisible || sheet != null || pageDialog || bookmarkDialog
+    val activeAuto = auto && ready && !isSeeking && !modalOpen
+    val unit = if (book.kind == BookKind.EPUB) "위치" else "쪽"
     LaunchedEffect(position.progress) { if (!isSeeking) progress = position.progress.coerceIn(0f, 1f) }
     BackHandler { if (!chrome) chrome = true else onBack() }
-    DisposableEffect(activity, settings.volumePaging, settings.reverseVolumeKeys, modalOpen, readError) {
-        activity.volumeKeyHandler = if (settings.volumePaging && !modalOpen && readError == null) { down ->
+    DisposableEffect(activity, settings.volumePaging, settings.reverseVolumeKeys, modalOpen, ready) {
+        activity.volumeKeyHandler = if (settings.volumePaging && !modalOpen && ready) { down ->
             send(if (down xor settings.reverseVolumeKeys) ReaderCommand.Next else ReaderCommand.Previous)
         } else null
         onDispose { activity.volumeKeyHandler = null }
@@ -111,77 +114,96 @@ fun ReaderScreen(
         }
     }
     Box(Modifier.fillMaxSize()) {
-        Scaffold(containerColor = background, topBar = {
-            if (chrome) Box(Modifier.fillMaxWidth().background(surface).statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                Row(Modifier.fillMaxWidth().hardwarePanel(18.dp).padding(6.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    HardwareKey(Icons.AutoMirrored.Outlined.ArrowBack, "폴더로 돌아가기", onBack, round = true)
-                    Column(Modifier.weight(1f)) {
-                        HardwareLegend(when (book.kind) { BookKind.TEXT -> "TEXT READER"; BookKind.PDF -> "PDF READER"; BookKind.COMIC -> "IMAGE READER"; BookKind.EPUB -> "EPUB READER" })
-                        Text(book.title, Modifier.padding(top = 3.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+        Scaffold(modifier = Modifier.testTag("reader-screen"), containerColor = background, topBar = {
+            if (chrome) Surface(color = surface) {
+                Column(Modifier.fillMaxWidth().statusBarsPadding()
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        HardwareKey(Icons.AutoMirrored.Outlined.ArrowBack, "폴더로 돌아가기", onBack, round = true)
+                        Column(Modifier.weight(1f)) {
+                            HardwareLegend(when (book.kind) {
+                                BookKind.TEXT -> "TEXT READER"
+                                BookKind.PDF -> "PDF READER"
+                                BookKind.COMIC -> if (input is ReaderInput.Images) "IMAGE SEQUENCE" else "COMIC READER"
+                                BookKind.EPUB -> "EPUB READER"
+                            })
+                            Text(book.title, Modifier.padding(top = 2.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                        }
+                        HardwareKey(Icons.Outlined.Fullscreen, "도구 숨기고 읽기", { chrome = false })
                     }
-                    HardwareKey(Icons.Outlined.Fullscreen, "도구 숨기고 읽기", { chrome = false })
+                    HardwareRule()
                 }
             }
         }, bottomBar = {
-            if (chrome) Box(Modifier.fillMaxWidth().background(surface).navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                Column(Modifier.fillMaxWidth().hardwarePanel(20.dp).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        HardwareKey(Icons.AutoMirrored.Outlined.NavigateBefore, "이전 $unit", { send(ReaderCommand.Previous) }, round = true,
-                            enabled = ready && if (settings.readingMode == ReadingMode.PAGE) info.current > 1 else position.progress > 0f)
-                        Column(Modifier.weight(1f).hardwareWell().clickable(enabled = ready) { pageDialog = true }.padding(horizontal = 6.dp, vertical = 9.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("${info.current} / ${info.total} $unit", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Light, fontSize = 20.sp, color = colors.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            HardwareLegend("${(progress * 100).toInt()}% · 눌러서 이동")
+            if (chrome) Surface(color = surface) {
+                Column(Modifier.fillMaxWidth().testTag("reader-tools").navigationBarsPadding()
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
+                    HardwareRule()
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            // EPUB positions are not screen pages. Readium owns their movement boundaries.
+                            HardwareKey(Icons.AutoMirrored.Outlined.NavigateBefore, "이전 $unit", { send(ReaderCommand.Previous) }, round = true,
+                                enabled = ready && (book.kind == BookKind.EPUB || if (settings.readingMode == ReadingMode.PAGE) info.current > 1 else position.progress > 0f))
+                            Column(Modifier.weight(1f).hardwareWell().clickable(enabled = ready) { pageDialog = true }.padding(horizontal = 6.dp, vertical = 5.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(if (ready) "${info.current} / ${info.total} $unit" else "읽는 중", fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Light, fontSize = 20.sp, color = colors.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                HardwareLegend(if (ready) "${(progress * 100).toInt()}% · 눌러서 이동" else "파일 준비 중")
+                            }
+                            HardwareKey(Icons.AutoMirrored.Outlined.NavigateNext, "다음 $unit", { send(ReaderCommand.Next) }, round = true,
+                                enabled = ready && (book.kind == BookKind.EPUB || if (settings.readingMode == ReadingMode.PAGE) info.current < info.total else position.progress < 1f))
                         }
-                        HardwareKey(Icons.AutoMirrored.Outlined.NavigateNext, "다음 $unit", { send(ReaderCommand.Next) }, round = true,
-                            enabled = ready && if (settings.readingMode == ReadingMode.PAGE) info.current < info.total else position.progress < 1f)
-                    }
-                    HardwareSlider(progress, { isSeeking = true; progress = it }, onValueChangeChangeFinished@{
-                        val requested = progress
-                        isSeeking = false
-                        progress = position.progress.coerceIn(0f, 1f)
-                        send(ReaderCommand.SeekProgress(requested))
-                    }, modifier = Modifier.fillMaxWidth(), enabled = ready)
-                    HardwareRule(Modifier.fillMaxWidth())
-                    BoxWithConstraints(Modifier.fillMaxWidth()) {
-                        val actionCount = 4 + (if (info.supportsSearch) 1 else 0) + (if (info.outline.isNotEmpty()) 1 else 0)
-                        val columns = if (actionCount * 52f <= maxWidth.value) actionCount else (actionCount + 1) / 2
-                        FlowRow(Modifier.fillMaxWidth(), maxItemsInEachRow = columns, horizontalArrangement = Arrangement.SpaceEvenly, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            if (info.supportsSearch) HardwareKey(Icons.Outlined.Search, "본문 검색", { sheet = "search" }, enabled = ready)
-                            if (info.outline.isNotEmpty()) HardwareKey(Icons.AutoMirrored.Outlined.FormatListBulleted, "목차", { sheet = "contents" })
-                            HardwareKey(Icons.Outlined.Bookmarks, "책갈피 목록", { sheet = "bookmarks" })
-                            HardwareKey(Icons.Outlined.BookmarkAdd, "책갈피 추가", { bookmarkDialog = true }, enabled = ready)
-                            HardwareKey(if (auto) Icons.Outlined.Pause else Icons.Outlined.PlayArrow, if (auto) "자동 읽기 정지" else "자동 읽기 시작",
-                                { auto = !auto; if (auto) chrome = false }, primary = true, enabled = ready)
-                            HardwareKey(Icons.Outlined.Tune, "독서 설정", onSettings)
+                        HardwareSlider(progress, { isSeeking = true; progress = it }, {
+                            val requested = progress
+                            isSeeking = false
+                            progress = position.progress.coerceIn(0f, 1f)
+                            send(ReaderCommand.SeekProgress(requested))
+                        }, modifier = Modifier.fillMaxWidth(), enabled = ready)
+                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                            val actionCount = 4 + (if (info.supportsSearch) 1 else 0) + (if (info.outline.isNotEmpty()) 1 else 0)
+                            val columns = if (actionCount * 52f <= maxWidth.value) actionCount else (actionCount + 1) / 2
+                            FlowRow(Modifier.fillMaxWidth(), maxItemsInEachRow = columns, horizontalArrangement = Arrangement.SpaceEvenly, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (info.supportsSearch) HardwareKey(Icons.Outlined.Search, "본문 검색", { sheet = "search" }, enabled = ready)
+                                if (info.outline.isNotEmpty()) HardwareKey(Icons.AutoMirrored.Outlined.FormatListBulleted, "목차", { sheet = "contents" })
+                                HardwareKey(Icons.Outlined.Bookmarks, "책갈피 목록", { sheet = "bookmarks" })
+                                HardwareKey(Icons.Outlined.BookmarkAdd, "책갈피 추가", { bookmarkDialog = true }, enabled = ready)
+                                HardwareKey(if (auto) Icons.Outlined.Pause else Icons.Outlined.PlayArrow, if (auto) "자동 읽기 정지" else "자동 읽기 시작",
+                                    { auto = !auto; if (auto) chrome = false }, primary = true, enabled = ready)
+                                HardwareKey(Icons.Outlined.Tune, "독서 설정", onSettings)
+                            }
                         }
                     }
                 }
-            } else Row(Modifier.fillMaxWidth().background(background).navigationBarsPadding().height(48.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("${info.current} / ${info.total}", color = ink.copy(alpha = 0.6f), style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+            } else Row(Modifier.fillMaxWidth().background(background).navigationBarsPadding()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                .height(48.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (ready) "${info.current} / ${info.total}" else "읽는 중", color = ink.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
                 if (auto) IconButton({ auto = false }) { Icon(Icons.Outlined.Pause, "자동 읽기 정지", tint = ink) }
                 IconButton({ chrome = true }) { Icon(Icons.Outlined.MoreHoriz, "읽기 도구 열기", tint = ink) }
             }
         }) { padding ->
-            val viewport = Modifier.fillMaxSize().padding(padding)
             val reportPosition: (ReadingPosition) -> Unit = { position = it; onPosition(it) }
             val reportInfo: (ReaderInfo) -> Unit = { info = it }
             val results: (List<SearchResult>) -> Unit = { searchResults = it; searching = false; searched = true }
             val toggle: () -> Unit = { chrome = !chrome }
             val fail: (String) -> Unit = { readError = it; auto = false; chrome = true }
             val finish = { auto = false }
-            if (readError == null) when (book.kind) {
-                BookKind.TEXT -> TextReader((input as ReaderInput.LocalFile).file, initialPosition, settings, commands,
-                    activeAuto, reportPosition, reportInfo, results, toggle, fail, finish, viewport)
-                BookKind.COMIC, BookKind.PDF -> VisualReader(input, book.kind, initialPosition, settings, commands,
-                    activeAuto, reportPosition, reportInfo, results, toggle, fail, finish, viewport)
-                BookKind.EPUB -> EpubReader((input as ReaderInput.LocalFile).file, initialPosition, settings, commands,
-                    activeAuto, reportPosition, reportInfo, results, toggle, fail, finish, viewport)
-            } else Column(viewport.padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("파일을 열지 못했습니다", color = ink, style = MaterialTheme.typography.titleLarge)
-                Text(readError.orEmpty(), Modifier.padding(vertical = 16.dp), color = ink)
-                TextButton(onBack) { Text("폴더로 돌아가기") }
+            // Toolbars reserve space; they never obscure the page or textbook.
+            Box(Modifier.fillMaxSize().padding(padding).testTag("reader-viewport").background(background)) {
+                val viewport = Modifier.fillMaxSize()
+                if (readError == null) when (book.kind) {
+                    BookKind.TEXT -> TextReader((input as ReaderInput.LocalFile).file, initialPosition, renderingSettings, commands,
+                        activeAuto, reportPosition, reportInfo, results, toggle, fail, finish, viewport)
+                    BookKind.COMIC, BookKind.PDF -> VisualReader(input, book.kind, initialPosition, renderingSettings, commands,
+                        activeAuto, reportPosition, reportInfo, results, toggle, fail, finish, viewport)
+                    BookKind.EPUB -> EpubReader((input as ReaderInput.LocalFile).file, initialPosition, renderingSettings, commands,
+                        activeAuto, reportPosition, reportInfo, results, toggle, fail, finish, viewport)
+                } else Column(viewport.padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("파일을 열지 못했습니다", color = ink, style = MaterialTheme.typography.titleLarge)
+                    Text(readError.orEmpty(), Modifier.padding(vertical = 16.dp), color = ink)
+                    TextButton(onBack) { Text("폴더로 돌아가기") }
+                }
             }
         }
         if (settings.dimAmount > 0) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = settings.dimAmount)))
