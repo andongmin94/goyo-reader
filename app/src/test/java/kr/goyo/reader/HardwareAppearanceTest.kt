@@ -34,6 +34,7 @@ class HardwareAppearanceTest {
 
     @Test fun lightDirectorySettingsAndTextReaderShareTheHardwareComponents() {
         val folder = browseSamples()
+        assertFullWidthDirectory(0.55f)
         capture("spec-directory-light.png")
         compose.onNodeWithContentDescription("독서 설정").performClick()
         compose.waitUntil(5_000) { compose.onAllNodes(hasContentDescription("글자 크기 늘리기")).fetchSemanticsNodes().isNotEmpty() }
@@ -57,10 +58,47 @@ class HardwareAppearanceTest {
     @Test @Config(qualifiers = "w390dp-h844dp-night")
     fun darkDirectoryRetainsReadableLabelsAndActions() {
         browseSamples()
+        assertFullWidthDirectory(0.55f)
         compose.onNodeWithContentDescription("파일").assertIsSelected()
         compose.onNodeWithContentDescription("새로고침").assertIsEnabled()
         compose.onNodeWithContentDescription("독서 설정").assertIsDisplayed()
         capture("spec-directory-dark.png")
+    }
+
+    @Test @Config(qualifiers = "w320dp-h640dp")
+    fun compactDirectoryUsesTheWidthWithoutShrinkingControlsOrHidingFiles() {
+        browseSamples()
+        assertFullWidthDirectory(0.42f)
+        compose.onNodeWithText("교재").assertIsDisplayed()
+        compose.onNodeWithText("01. 파동과 빛.txt").assertIsDisplayed()
+        capture("spec-directory-compact.png")
+        compose.onNodeWithContentDescription("이름 ↑").performClick()
+        compose.onNodeWithText("수정일순").performClick()
+        compose.onNodeWithContentDescription("수정일 ↑").assertIsDisplayed()
+        compose.onNodeWithContentDescription("썸네일 끄기").performClick()
+        compose.onNodeWithContentDescription("썸네일 켜기").assertIsDisplayed()
+        compose.onNodeWithText("진동 패턴.png").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("즐겨찾기 추가").performClick()
+        compose.onNodeWithContentDescription("즐겨찾기").performClick()
+        compose.onNodeWithText("내 자료").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasContentDescription("상위 폴더")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("파일").assertIsSelected()
+    }
+
+    private fun assertFullWidthDirectory(minimumHeightFraction: Float) {
+        val screen = compose.onNodeWithTag("browser-screen").fetchSemanticsNode().boundsInRoot
+        val list = compose.onNodeWithTag("browser-file-list").fetchSemanticsNode().boundsInRoot
+        val navigation = compose.onNodeWithTag("browser-navigation").fetchSemanticsNode().boundsInRoot
+        assertEquals("No decorative side frame may narrow the file list", screen.width, list.width, 1f)
+        assertTrue("The list needs usable height, not stacked card padding: $list", list.height >= screen.height * minimumHeightFraction)
+        assertTrue("The bottom controls must not cover the last file", list.bottom <= navigation.top + 1f)
+        val density = compose.activity.resources.displayMetrics.density
+        listOf("폴더 선택", "독서 설정", "새로고침", "파일", "최근", "즐겨찾기").forEach { label ->
+            val node = compose.onNodeWithContentDescription(label).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue("Keep the $label touch target", node.width >= 48f * density && node.height >= 48f * density)
+            assertTrue("Keep $label inside the viewport", node.left >= screen.left && node.right <= screen.right)
+        }
+        println("DIRECTORY_LAYOUT screen=$screen list=$list navigation=$navigation density=$density")
     }
 
     private fun browseSamples(): File {
