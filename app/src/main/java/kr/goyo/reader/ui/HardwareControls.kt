@@ -24,6 +24,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.shadow.Shadow
@@ -93,7 +94,7 @@ internal fun HardwareKey(
         ) {
             if (stacked) HardwareLed(active, modifier = Modifier.size(7.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (icon != null) Icon(icon, null, Modifier.size(18.dp), tint = ink)
+                if (icon != null && !stacked) Icon(icon, null, Modifier.size(18.dp), tint = ink)
                 if (showLabel) Text(label, color = ink, fontSize = 12.sp, lineHeight = 16.sp,
                     fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -138,7 +139,7 @@ internal fun HardwareSearchField(value: String, onValueChange: (String) -> Unit,
         Icon(leading, null, Modifier.size(18.dp), tint = colors.onSurfaceVariant)
         BasicTextField(value, onValueChange, Modifier.weight(1f).padding(vertical = 14.dp).semantics { contentDescription = "파일명 검색" },
             singleLine = true, textStyle = TextStyle(color = colors.onSurface, fontSize = 14.sp),
-            cursorBrush = Brush.solidColor(colors.primary), decorationBox = { field ->
+            cursorBrush = SolidColor(colors.primary), decorationBox = { field ->
                 Box { if (value.isEmpty()) Text("파일명 검색", color = colors.onSurfaceVariant, fontSize = 14.sp); field() }
             })
         if (value.isNotEmpty()) IconButton({ onValueChange("") }) { Icon(clear, "검색 지우기", Modifier.size(18.dp)) }
