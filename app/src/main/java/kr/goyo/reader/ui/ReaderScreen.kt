@@ -4,8 +4,6 @@ import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -36,7 +35,7 @@ import kr.goyo.reader.MainActivity
 import kr.goyo.reader.model.*
 import kr.goyo.reader.reader.*
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ReaderScreen(
     activity: MainActivity,
@@ -113,10 +112,10 @@ fun ReaderScreen(
     }
     Box(Modifier.fillMaxSize()) {
         Scaffold(containerColor = background, topBar = {
-            if (chrome) Surface(color = surface) {
-                Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    HardwareKey(Icons.AutoMirrored.Outlined.ArrowBack, "폴더로 돌아가기", onBack)
+            if (chrome) Box(Modifier.fillMaxWidth().background(surface).statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Row(Modifier.fillMaxWidth().hardwarePanel(18.dp).padding(6.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    HardwareKey(Icons.AutoMirrored.Outlined.ArrowBack, "폴더로 돌아가기", onBack, round = true)
                     Column(Modifier.weight(1f)) {
                         HardwareLegend(when (book.kind) { BookKind.TEXT -> "TEXT READER"; BookKind.PDF -> "PDF READER"; BookKind.COMIC -> "IMAGE READER"; BookKind.EPUB -> "EPUB READER" })
                         Text(book.title, Modifier.padding(top = 3.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
@@ -125,38 +124,41 @@ fun ReaderScreen(
                 }
             }
         }, bottomBar = {
-            if (chrome) Surface(color = surface) {
-                Column(Modifier.navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        HardwareKey(Icons.AutoMirrored.Outlined.NavigateBefore, "이전 $unit", { send(ReaderCommand.Previous) },
+            if (chrome) Box(Modifier.fillMaxWidth().background(surface).navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Column(Modifier.fillMaxWidth().hardwarePanel(20.dp).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        HardwareKey(Icons.AutoMirrored.Outlined.NavigateBefore, "이전 $unit", { send(ReaderCommand.Previous) }, round = true,
                             enabled = ready && if (settings.readingMode == ReadingMode.PAGE) info.current > 1 else position.progress > 0f)
-                        Column(Modifier.weight(1f).hardwareWell().clickable(enabled = ready) { pageDialog = true }.padding(vertical = 8.dp),
+                        Column(Modifier.weight(1f).hardwareWell().clickable(enabled = ready) { pageDialog = true }.padding(horizontal = 6.dp, vertical = 9.dp),
                             horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("${info.current} / ${info.total} $unit", fontFamily = FontFamily.Monospace, fontSize = 17.sp, color = colors.primary)
+                            Text("${info.current} / ${info.total} $unit", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Light, fontSize = 20.sp, color = colors.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             HardwareLegend("${(progress * 100).toInt()}% · 눌러서 이동")
                         }
-                        HardwareKey(Icons.AutoMirrored.Outlined.NavigateNext, "다음 $unit", { send(ReaderCommand.Next) },
+                        HardwareKey(Icons.AutoMirrored.Outlined.NavigateNext, "다음 $unit", { send(ReaderCommand.Next) }, round = true,
                             enabled = ready && if (settings.readingMode == ReadingMode.PAGE) info.current < info.total else position.progress < 1f)
                     }
-                    Spacer(Modifier.height(10.dp))
-                    HardwareSlider(progress, { isSeeking = true; progress = it }, onValueChangeFinished = {
+                    HardwareSlider(progress, { isSeeking = true; progress = it }, onValueChangeChangeFinished@{
                         val requested = progress
                         isSeeking = false
                         progress = position.progress.coerceIn(0f, 1f)
                         send(ReaderCommand.SeekProgress(requested))
                     }, modifier = Modifier.fillMaxWidth(), enabled = ready)
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
-                        if (info.supportsSearch) HardwareKey(Icons.Outlined.Search, "본문 검색", { sheet = "search" }, enabled = ready)
-                        if (info.outline.isNotEmpty()) HardwareKey(Icons.AutoMirrored.Outlined.FormatListBulleted, "목차", { sheet = "contents" })
-                        HardwareKey(Icons.Outlined.Bookmarks, "책갈피 목록", { sheet = "bookmarks" })
-                        HardwareKey(Icons.Outlined.BookmarkAdd, "책갈피 추가", { bookmarkDialog = true }, enabled = ready)
-                        HardwareKey(if (auto) Icons.Outlined.Pause else Icons.Outlined.PlayArrow, if (auto) "자동 읽기 정지" else "자동 읽기 시작",
-                            { auto = !auto; if (auto) chrome = false }, primary = true, enabled = ready)
-                        HardwareKey(Icons.Outlined.Tune, "독서 설정", onSettings)
+                    HardwareRule(Modifier.fillMaxWidth())
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val actionCount = 4 + (if (info.supportsSearch) 1 else 0) + (if (info.outline.isNotEmpty()) 1 else 0)
+                        val columns = if (actionCount * 52f <= maxWidth.value) actionCount else (actionCount + 1) / 2
+                        FlowRow(Modifier.fillMaxWidth(), maxItemsInEachRow = columns, horizontalArrangement = Arrangement.SpaceEvenly, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (info.supportsSearch) HardwareKey(Icons.Outlined.Search, "본문 검색", { sheet = "search" }, enabled = ready)
+                            if (info.outline.isNotEmpty()) HardwareKey(Icons.AutoMirrored.Outlined.FormatListBulleted, "목차", { sheet = "contents" })
+                            HardwareKey(Icons.Outlined.Bookmarks, "책갈피 목록", { sheet = "bookmarks" })
+                            HardwareKey(Icons.Outlined.BookmarkAdd, "책갈피 추가", { bookmarkDialog = true }, enabled = ready)
+                            HardwareKey(if (auto) Icons.Outlined.Pause else Icons.Outlined.PlayArrow, if (auto) "자동 읽기 정지" else "자동 읽기 시작",
+                                { auto = !auto; if (auto) chrome = false }, primary = true, enabled = ready)
+                            HardwareKey(Icons.Outlined.Tune, "독서 설정", onSettings)
+                        }
                     }
                 }
-            } else Row(Modifier.fillMaxWidth().background(background).navigationBarsPadding().height(48.dp).padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically) {
+            } else Row(Modifier.fillMaxWidth().background(background).navigationBarsPadding().height(48.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("${info.current} / ${info.total}", color = ink.copy(alpha = 0.6f), style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
                 if (auto) IconButton({ auto = false }) { Icon(Icons.Outlined.Pause, "자동 읽기 정지", tint = ink) }
                 IconButton({ chrome = true }) { Icon(Icons.Outlined.MoreHoriz, "읽기 도구 열기", tint = ink) }
@@ -206,7 +208,8 @@ fun ReaderScreen(
                 "search" -> {
                     item {
                         OutlinedTextField(query, { query = it }, label = { Text("검색어") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                        Button({ searching = true; searchResults = emptyList(); send(ReaderCommand.Search(query.trim())) }, enabled = query.isNotBlank() && !searching) { Text("검색") }
+                        HardwareKey(null, "검색", { searching = true; searchResults = emptyList(); send(ReaderCommand.Search(query.trim())) },
+                            primary = true, showLabel = true, enabled = query.isNotBlank() && !searching)
                         if (searching) LinearProgressIndicator(Modifier.fillMaxWidth())
                         else if (searched) Text("검색 결과 ${searchResults.size}개", style = MaterialTheme.typography.labelMedium)
                     }
@@ -238,6 +241,6 @@ private fun ResultRow(title: String, excerpt: String, onClick: () -> Unit) {
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall)
         Text(excerpt, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
-        HorizontalDivider(Modifier.padding(top = 12.dp))
+        HardwareRule(Modifier.padding(top = 12.dp))
     }
 }
