@@ -55,6 +55,8 @@ fun HomeScreen(
 ) {
     var tab by rememberSaveable { mutableStateOf("files") }
     val pathKey = browser.path.lastOrNull()?.uri ?: "root"
+    val pathScroll = rememberScrollState()
+    LaunchedEffect(pathKey, pathScroll.maxValue) { pathScroll.scrollTo(pathScroll.maxValue) }
     var query by rememberSaveable(pathKey, tab) { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(FileSort.NAME) }
     var descending by rememberSaveable { mutableStateOf(false) }
@@ -101,7 +103,7 @@ fun HomeScreen(
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onUp, enabled = browser.path.isNotEmpty()) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "상위 폴더", Modifier.size(19.dp)) }
-                        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.weight(1f).horizontalScroll(pathScroll), verticalAlignment = Alignment.CenterVertically) {
                             Text("파일", Modifier.clickable { onNavigate(emptyList()) }.padding(8.dp), fontSize = 12.sp)
                             browser.path.forEachIndexed { index, part ->
                                 Text("/", color = colors.outline)

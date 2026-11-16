@@ -150,7 +150,9 @@ class ReaderFormatsDeviceTest {
             up(0)
             up(1)
         }
-        val pager = compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange))
+        // The toolbar can also scroll horizontally; only the image pager owns this content.
+        val pager = compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange)
+            and hasAnyDescendant(hasContentDescription("1쪽 · 1.png")))
         pager.assert(SemanticsMatcher("Page swiping is disabled while zoomed") { !it.config.contains(SemanticsActions.ScrollBy) })
         compose.onRoot().performTouchInput { swipeLeft() }
         compose.onNodeWithText("1 / 2 쪽").assertIsDisplayed()

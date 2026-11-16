@@ -81,11 +81,17 @@ class HardwareControlsTest {
             }
         }
         val slider = compose.onNodeWithContentDescription("글자 크기")
-        slider.performTouchInput { down(Offset(width * 0.8f, height / 2f)) }
-        compose.waitForIdle()
-        compose.onNodeWithText("20 sp").assertDoesNotExist()
-        assertNull("Dragging must not repeatedly persist settings or repaginate a novel", committed.get())
-        slider.performTouchInput { up() }
+        // A press alone is not a drag: move past touch slop while keeping the finger down.
+        slider.performTouchInput {
+            down(Offset(width * 0.3f, height / 2f))
+            moveTo(Offset(width * 0.55f, height / 2f))
+            moveTo(Offset(width * 0.8f, height / 2f))
+        }
+        try {
+            compose.waitForIdle()
+            compose.onNodeWithText("20 sp").assertDoesNotExist()
+            assertNull("Dragging must not repeatedly persist settings or repaginate a novel", committed.get())
+        } finally { slider.performTouchInput { up() } }
         compose.waitForIdle()
         assertTrue(requireNotNull(committed.get()) > 20f)
     }
