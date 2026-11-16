@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
@@ -24,7 +23,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 
-/** Capture the actual app with valid, locally generated reading documents, not an HTML mock. */
+/** Capture the actual app with valid local reading documents, not an HTML mock. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = MinViewerApplication::class, qualifiers = "w390dp-h844dp")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -41,7 +40,9 @@ class HardwareAppearanceTest {
         compose.onNodeWithContentDescription("글자 크기 늘리기").performClick()
         compose.waitUntil(5_000) { ViewModelProvider(compose.activity)[LibraryViewModel::class.java].library.value.settings.fontSizeSp == 19f }
         capture("spec-settings.png")
-        compose.onNodeWithText("읽기 설정 닫기").performScrollTo().performClick()
+        // Lazy settings below the viewport are not composed until scrolled into view.
+        compose.onAllNodes(hasScrollToIndexAction()).onLast().performScrollToNode(hasText("읽기 설정 닫기"))
+        compose.onNodeWithText("읽기 설정 닫기").performClick()
         compose.waitUntil(5_000) { compose.onAllNodes(hasContentDescription("파일명 검색")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("01. 파동과 빛.txt").performScrollTo().performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(hasContentDescription("본문 검색") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
@@ -72,30 +73,28 @@ class HardwareAppearanceTest {
             "같은 현상도 어디에서 바라보는지에 따라 다르게 보인다. 한 점을 오래 관찰하면 주기적인 움직임이 보이고, 한순간의 전체 모습을 보면 공간에 반복되는 무늬가 보인다.\n\n" +
             "이 노트에서는 익숙한 풍경에서 출발해 진동과 빛의 성질을 천천히 살펴본다.\n\n").repeat(8))
         val bitmap = Bitmap.createBitmap(600, 800, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        canvas.drawColor(Color.WHITE)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(40, 40, 40); textSize = 24f }
-        canvas.drawText("WAVE / STUDY 01", 50f, 85f, paint)
-        paint.strokeWidth = 1f; paint.color = Color.rgb(225, 225, 225)
-        for (i in 0..10) {
-            canvas.drawLine(50f + 50f * i, 160f, 50f + 50f * i, 560f, paint)
-            if (i <= 8) canvas.drawLine(50f, 160f + 50f * i, 550f, 160f + 50f * i, paint)
-        }
-        paint.color = Color.rgb(0, 53, 255); paint.strokeWidth = 3f
-        for (x in 51..550) {
-            canvas.drawLine((x - 1).toFloat(), 360f - 135f * sin((x - 51) / 65f), x.toFloat(), 360f - 135f * sin((x - 50) / 65f), paint)
-        }
-        paint.color = Color.rgb(90, 90, 90); paint.textSize = 18f
-        canvas.drawText("x(t) = A cos(wt)", 50f, 650f, paint)
         val png = File(folder, "진동 패턴.png")
-        png.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
-        val pdf = PdfDocument()
         try {
-            val page = pdf.startPage(PdfDocument.PageInfo.Builder(600, 800, 1).create())
-            page.canvas.drawBitmap(bitmap, 0f, 0f, null)
-            pdf.finishPage(page)
-            File(folder, "실험 노트.pdf").outputStream().use { pdf.writeTo(it) }
-        } finally { pdf.close(); bitmap.recycle() }
+            val canvas = Canvas(bitmap)
+            canvas.drawColor(Color.WHITE)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(40, 40, 40); textSize = 24f }
+            canvas.drawText("WAVE / STUDY 01", 50f, 85f, paint)
+            paint.strokeWidth = 1f; paint.color = Color.rgb(225, 225, 225)
+            for (i in 0..10) {
+                canvas.drawLine(50f + 50f * i, 160f, 50f + 50f * i, 560f, paint)
+                if (i <= 8) canvas.drawLine(50f, 160f + 50f * i, 550f, 160f + 50f * i, paint)
+            }
+            paint.color = Color.rgb(0, 53, 255); paint.strokeWidth = 3f
+            for (x in 51..550) canvas.drawLine((x - 1).toFloat(), 360f - 135f * sin((x - 51) / 65f), x.toFloat(), 360f - 135f * sin((x - 50) / 65f), paint)
+            paint.color = Color.rgb(90, 90, 90); paint.textSize = 18f
+            canvas.drawText("WAVE / DETAIL", 50f, 650f, paint)
+            png.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+        } finally { bitmap.recycle() }
+        // PdfDocument creation is not implemented by this JVM environment. Use a real
+        // ReportLab-generated, renderer-checked fixture; native PDF reading has device tests.
+        checkNotNull(javaClass.getResourceAsStream("/wave-notes.pdf")).use { input ->
+            File(folder, "실험 노트.pdf").outputStream().use { output -> input.copyTo(output) }
+        }
         ZipOutputStream(File(folder, "도해 모음.zip").outputStream()).use { zip ->
             zip.putNextEntry(ZipEntry("001.png")); png.inputStream().use { it.copyTo(zip) }; zip.closeEntry()
         }
