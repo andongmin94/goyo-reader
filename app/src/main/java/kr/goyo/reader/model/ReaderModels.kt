@@ -20,6 +20,7 @@ data class ReaderSettings(
     val customFontPath: String? = null,
     val backgroundColor: Long = 0xFFFFFFFF,
     val textColor: Long = 0xFF202124,
+    val followSystemTheme: Boolean = true,
     val readingMode: ReadingMode = ReadingMode.PAGE,
     val rightToLeft: Boolean = false,
     val volumePaging: Boolean = true,
