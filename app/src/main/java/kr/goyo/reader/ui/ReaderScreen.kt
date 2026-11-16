@@ -142,8 +142,9 @@ fun ReaderScreen(
                     HardwareRule()
                     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            // EPUB positions are not screen pages. Readium owns their movement boundaries.
                             HardwareKey(Icons.AutoMirrored.Outlined.NavigateBefore, "이전 $unit", { send(ReaderCommand.Previous) }, round = true,
-                                enabled = ready && if (settings.readingMode == ReadingMode.PAGE) info.current > 1 else position.progress > 0f)
+                                enabled = ready && (book.kind == BookKind.EPUB || if (settings.readingMode == ReadingMode.PAGE) info.current > 1 else position.progress > 0f))
                             Column(Modifier.weight(1f).hardwareWell().clickable(enabled = ready) { pageDialog = true }.padding(horizontal = 6.dp, vertical = 5.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(if (ready) "${info.current} / ${info.total} $unit" else "읽는 중", fontFamily = FontFamily.Monospace,
@@ -151,7 +152,7 @@ fun ReaderScreen(
                                 HardwareLegend(if (ready) "${(progress * 100).toInt()}% · 눌러서 이동" else "파일 준비 중")
                             }
                             HardwareKey(Icons.AutoMirrored.Outlined.NavigateNext, "다음 $unit", { send(ReaderCommand.Next) }, round = true,
-                                enabled = ready && if (settings.readingMode == ReadingMode.PAGE) info.current < info.total else position.progress < 1f)
+                                enabled = ready && (book.kind == BookKind.EPUB || if (settings.readingMode == ReadingMode.PAGE) info.current < info.total else position.progress < 1f))
                         }
                         HardwareSlider(progress, { isSeeking = true; progress = it }, {
                             val requested = progress
@@ -262,6 +263,6 @@ private fun ResultRow(title: String, excerpt: String, onClick: () -> Unit) {
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall)
         Text(excerpt, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
-        HorizontalDivider(Modifier.padding(top = 12.dp))
+        HardwareRule(Modifier.padding(top = 12.dp))
     }
 }

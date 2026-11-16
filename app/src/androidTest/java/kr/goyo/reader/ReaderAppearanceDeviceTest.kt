@@ -19,6 +19,7 @@ import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import kr.goyo.reader.model.FolderLocation
 import kr.goyo.reader.model.ReaderSettings
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -64,6 +65,16 @@ class ReaderAppearanceDeviceTest {
                         assertTrue(body.optString("text").contains(ReadingSamples.marker))
                         compose.onNodeWithContentDescription("목차").assertIsDisplayed()
                         compose.onNodeWithContentDescription("본문 검색").assertIsEnabled()
+                        awaitEpubFrame()
+                        // This compressed, single-resource publication has one locator position,
+                        // but many screen pages. Its transport must still turn the actual page.
+                        compose.onNodeWithText("1 / 1 위치").assertIsDisplayed()
+                        val before = epubProgress()
+                        compose.onNodeWithContentDescription("다음 위치").assertIsEnabled().performClick()
+                        compose.waitUntil(10_000) { epubProgress() > before + 0.001 }
+                        compose.onNodeWithContentDescription("이전 위치").assertIsEnabled().performClick()
+                        compose.waitUntil(10_000) { epubProgress() <= before + 0.001 }
+                        awaitEpubFrame()
                     }
                     else -> assertOriginalVisualColors()
                 }
@@ -104,7 +115,6 @@ class ReaderAppearanceDeviceTest {
 
     private fun samples(): File = temporary.newFolder("내 자료").also {
         ReadingSamples.create(it)
-        // Two loose image entries exercise sequence input as well as the ZIP input.
         File(it, ReadingSamples.imageName).copyTo(File(it, "02-관측일지.png"))
     }
 
@@ -123,12 +133,23 @@ class ReaderAppearanceDeviceTest {
 
     private fun browse(directory: File) {
         compose.waitUntil(10_000) { compose.onAllNodes(hasContentDescription("파일")).fetchSemanticsNodes().isNotEmpty() }
+        val uri = Uri.fromFile(directory).toString()
         compose.runOnIdle {
             model().updateSettings(ReaderSettings(fontSizeSp = 18f, marginDp = 24f, lineSpacing = 1.55f))
-            model().selectFolder(Uri.fromFile(directory))
+            // Set loading synchronously: the old theme's directory is not the new result.
+            model().navigate(listOf(FolderLocation(uri, directory.name)))
         }
-        compose.waitUntil(10_000) { !model().browser.value.loading && model().library.value.settings.followSystemTheme &&
-            compose.onAllNodes(hasText(ReadingSamples.textName)).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) {
+            val state = model().browser.value
+            !state.loading && state.path.lastOrNull()?.uri == uri && state.entries.size == 6 &&
+                model().library.value.settings.followSystemTheme &&
+                compose.onAllNodes(hasText(ReadingSamples.textName)).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithContentDescription("새로고침").assertIsEnabled()
+        compose.waitUntil(10_000) {
+            compose.onAllNodes(hasContentDescription("${ReadingSamples.imageName} 미리보기"), useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     private fun open(name: String) {
@@ -181,6 +202,23 @@ class ReaderAppearanceDeviceTest {
         else -> emptyList()
     }
 
+    private fun epubProgress(): Double = compose.runOnIdle {
+        val position = model().latestPosition(requireNotNull(model().session.value).book)
+        JSONObject(requireNotNull(position.locator)).getJSONObject("locations").getDouble("progression")
+    }
+
+    private fun awaitEpubFrame() {
+        val drawn = CountDownLatch(1)
+        instrumentation.runOnMainSync {
+            val web = requireNotNull(compose.activity.window.decorView.webViews().firstOrNull { it.isShown })
+            web.postVisualStateCallback(1L, object : WebView.VisualStateCallback() {
+                override fun onComplete(requestId: Long) { drawn.countDown() }
+            })
+        }
+        check(drawn.await(5, TimeUnit.SECONDS)) { "EPUB content has not reached the compositor" }
+        instrumentation.waitForIdleSync()
+    }
+
     private fun epubBody(): JSONObject {
         val result = AtomicReference(JSONObject())
         val done = CountDownLatch(1)
@@ -205,7 +243,6 @@ class ReaderAppearanceDeviceTest {
         val bitmap = checkNotNull(automation.takeScreenshot())
         try { file.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) } }
         finally { bitmap.recycle() }
-        // Keep captures available after AGP uninstalls the test application.
         ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("mkdir -p /sdcard/Download/min-viewer-formats")).use { it.readBytes() }
         ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("cp ${file.absolutePath} /sdcard/Download/min-viewer-formats/$name")).use { it.readBytes() }
         println("FORMAT_CAPTURE $name")
