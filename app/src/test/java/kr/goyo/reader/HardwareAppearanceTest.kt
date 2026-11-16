@@ -39,7 +39,7 @@ class HardwareAppearanceTest {
         compose.waitUntil(5_000) { compose.onAllNodes(hasContentDescription("글자 크기 늘리기")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithContentDescription("글자 크기 늘리기").performClick()
         compose.waitUntil(5_000) { ViewModelProvider(compose.activity)[LibraryViewModel::class.java].library.value.settings.fontSizeSp == 19f }
-        capture("spec-settings.png", inSettings = true)
+        // The separate modal surface is captured on Android in HardwareSettingsDeviceTest.
         // Lazy settings below the viewport are not composed until scrolled into view.
         compose.onAllNodes(hasScrollToIndexAction()).onLast().performScrollToNode(hasText("읽기 설정 닫기"))
         compose.onNodeWithText("읽기 설정 닫기").performClick()
@@ -109,11 +109,8 @@ class HardwareAppearanceTest {
         return folder
     }
 
-    private fun capture(name: String, inSettings: Boolean = false) {
-        // ModalBottomSheet uses a separate window; root iteration order is not z-order.
-        val root = if (inSettings) compose.onNode(isRoot() and hasAnyDescendant(hasText("글자와 여백")))
-            else compose.onAllNodes(isRoot()).onLast()
-        val bitmap = root.captureToImage().asAndroidBitmap()
+    private fun capture(name: String) {
+        val bitmap = compose.onAllNodes(isRoot()).onLast().captureToImage().asAndroidBitmap()
         try {
             val target = File("build/outputs/screenshots", name).apply { parentFile.mkdirs() }
             target.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
