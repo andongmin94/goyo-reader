@@ -36,7 +36,10 @@ fun MinViewerApp(model: LibraryViewModel, activity: MainActivity) {
             val opened = session
             if (!ready) CircularProgressIndicator(Modifier.align(Alignment.Center))
             else if (opened != null) key(opened) {
-                ReaderScreen(activity, opened.book, opened.input, library.settings,
+                // Activity recreation retains the session but must use its latest reading position.
+                // Snapshot once: position reports must not recreate the active reader.
+                val book = remember(opened) { opened.book.copy(position = model.latestPosition(opened.book)) }
+                ReaderScreen(activity, book, opened.input, library.settings,
                     library.bookmarks.filter { it.bookId == opened.book.id }.sortedBy { it.createdAt },
                     settingsVisible = settings, onSettings = { settings = true }, onBack = model::close,
                     onPosition = { model.reportPosition(opened.book.id, it) },

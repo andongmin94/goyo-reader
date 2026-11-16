@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
@@ -179,7 +180,7 @@ private fun PagedVisualReader(
             }
         }
     }
-    HorizontalPager(state = pager, reverseLayout = settings.rightToLeft,
+    HorizontalPager(state = pager, reverseLayout = settings.rightToLeft, userScrollEnabled = !zoomed,
         modifier = Modifier.fillMaxSize(), key = { it }) { page ->
         val zoom = remember(page) { ViewportZoom() }
         LaunchedEffect(pager.settledPage) { if (pager.settledPage != page) zoom.reset() }
@@ -196,7 +197,7 @@ private fun PagedVisualReader(
             zoom.viewport = Size(width.toFloat(), height.toFloat())
             zoom.content = Size(fitWidth, fitHeight)
             LaunchedEffect(width, height) { zoom.rebound() }
-            val gestureState = rememberTransformableState { scale, pan, _ -> zoom.transform(scale, pan) }
+            val gestureState = rememberTransformableState { centroid, scale, pan, _ -> zoom.transform(centroid, scale, pan) }
             Box(Modifier.fillMaxSize()
                 .transformable(gestureState, canPan = { zoom.scale > 1.01f }, lockRotationOnZoomPan = true)
                 .pointerInput(zoom, settings.tapLayout, settings.rightToLeft) {
@@ -310,7 +311,7 @@ private fun ScrolledVisualReader(
                 }
             }
         }
-        val gestureState = rememberTransformableState { scale, pan, _ -> zoom.transform(scale, pan) }
+        val gestureState = rememberTransformableState { centroid, scale, pan, _ -> zoom.transform(centroid, scale, pan) }
         Box(Modifier.fillMaxSize()
             .transformable(gestureState, canPan = { zoom.scale > 1.01f }, lockRotationOnZoomPan = true)
             .pointerInput(zoom, settings.tapLayout, settings.rightToLeft, height) {
@@ -395,14 +396,18 @@ private fun handleVisualTap(x: Float, settings: ReaderSettings, next: () -> Unit
     }
 }
 
-private class ViewportZoom {
+internal class ViewportZoom {
     var scale by mutableFloatStateOf(1f)
     var offset by mutableStateOf(Offset.Zero)
     var viewport: Size = Size.Zero
     var content: Size = Size.Zero
-    fun transform(change: Float, pan: Offset) {
+    fun transform(centroid: Offset, change: Float, pan: Offset) {
         val nextScale = (scale * change).coerceIn(1f, 5f)
-        offset = bound(offset * (nextScale / scale) + pan, nextScale)
+        val ratio = nextScale / scale
+        val center = Offset(viewport.width / 2, viewport.height / 2)
+        val focus = if (centroid.isSpecified) centroid - center else Offset.Zero
+        // The content under the fingers stays there while zooming, then follows their pan.
+        offset = bound((offset - focus) * ratio + focus + pan, nextScale)
         scale = nextScale
     }
     fun toggle(point: Offset) {

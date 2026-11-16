@@ -41,6 +41,8 @@ class LibraryPreviewTest {
             compose.onAllNodes(hasContentDescription("page2.png 미리보기"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithContentDescription("page2.png 미리보기", useUnmergedTree = true).assertIsDisplayed()
+        // A long parent name must not hide the directory the user is actually browsing.
+        compose.onNodeWithText("만화").assertIsDisplayed()
         screenshot("library.png")
         compose.onNode(hasSetTextAction()).performTextReplacement("page2")
         compose.onNodeWithText("page10.png").assertDoesNotExist()
