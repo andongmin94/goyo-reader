@@ -2,6 +2,9 @@ package kr.goyo.reader
 
 import android.content.Intent
 import android.net.Uri
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.WebView
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.lifecycle.Lifecycle
@@ -10,10 +13,14 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kr.goyo.reader.model.*
+import org.json.JSONTokener
 import org.junit.After
 import org.junit.Before
 import org.junit.Assert.*
@@ -91,6 +98,7 @@ class ReadingResumeDeviceTest {
         launch()
         browse(directory)
         for (name in listOf(ReadingSamples.pdfName, ReadingSamples.imageName, ReadingSamples.zipName, ReadingSamples.epubName)) {
+            println("RESUME_OPEN $name")
             open(name)
             val epub = name.endsWith(".epub")
             val initial = position()
@@ -101,12 +109,14 @@ class ReadingResumeDeviceTest {
             }
             val before = position()
             val id = requireNotNull(model.session.value).book.id
+            println("RESUME_RESTART $name $before")
             restartFromLauncher(id, before)
             compose.waitUntil(15_000) {
                 val restored = position()
                 restored.index == before.index && kotlin.math.abs(restored.offset - before.offset) < 0.01f
             }
             if (name == ReadingSamples.imageName) assertEquals(before.locator, position().locator)
+            println("RESUME_VERIFIED $name ${position()}")
             compose.onNodeWithContentDescription("폴더로 돌아가기").performClick()
             compose.waitUntil(5_000) { model.session.value == null && model.library.value.openBookId == null }
         }
@@ -133,7 +143,10 @@ class ReadingResumeDeviceTest {
     }
 
     private fun open(name: String) {
-        compose.onNodeWithText(name).performScrollTo().performClick()
+        compose.onNodeWithTag("browser-file-list").performScrollToNode(hasText(name))
+        compose.onNodeWithText(name).performClick()
+        compose.waitUntil(10_000) { !model.opening.value && model.session.value?.book?.title ==
+            (if (name == ReadingSamples.imageName) "이어 읽기" else name) }
         waitReader()
     }
 
@@ -141,6 +154,41 @@ class ReadingResumeDeviceTest {
         compose.waitUntil(20_000) {
             compose.onAllNodes(hasContentDescription("책갈피 추가") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
         }
+        if (model.session.value?.book?.kind == BookKind.EPUB) awaitEpubDocument()
+    }
+
+    private fun View.webViews(): List<WebView> = when (this) {
+        is WebView -> listOf(this)
+        is ViewGroup -> (0 until childCount).flatMap { getChildAt(it).webViews() }
+        else -> emptyList()
+    }
+
+    private fun awaitEpubDocument() {
+        // Readium publishes metadata before the WebView page has loaded. Match the existing
+        // format test's real-content/visual-state check before pressing Next or checking resume.
+        compose.waitUntil(25_000) {
+            val body = AtomicReference("")
+            val done = CountDownLatch(1)
+            scenario!!.onActivity { activity ->
+                val web = activity.window.decorView.webViews().firstOrNull { it.isShown }
+                if (web == null) done.countDown()
+                else web.evaluateJavascript("document.body ? document.body.innerText : ''") { result ->
+                    body.set(JSONTokener(result).nextValue() as? String ?: "")
+                    done.countDown()
+                }
+            }
+            check(done.await(3, TimeUnit.SECONDS)) { "EPUB WebView did not return its text" }
+            body.get().contains(ReadingSamples.marker)
+        }
+        val drawn = CountDownLatch(1)
+        scenario!!.onActivity { activity ->
+            val web = requireNotNull(activity.window.decorView.webViews().firstOrNull { it.isShown })
+            web.postVisualStateCallback(1L, object : WebView.VisualStateCallback() {
+                override fun onComplete(requestId: Long) { drawn.countDown() }
+            })
+        }
+        check(drawn.await(5, TimeUnit.SECONDS)) { "EPUB page did not reach the compositor" }
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
     }
 
     private fun position(): ReadingPosition = compose.runOnIdle {
