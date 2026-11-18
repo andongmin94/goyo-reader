@@ -8,27 +8,33 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.ViewModelProvider
 import kr.goyo.reader.ui.MinViewerApp
 import kr.goyo.reader.ui.MinViewerTheme
 
 class MainActivity : FragmentActivity() {
-    private val model: LibraryViewModel by viewModels()
+    // Use this Application, not the process-wide factory's first cached Application.
+    private val model: LibraryViewModel by viewModels { ViewModelProvider.AndroidViewModelFactory(application) }
     var volumeKeyHandler: ((Boolean) -> Unit)? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        model.start(if (savedInstanceState == null) documentUri(intent) else null)
         setContent { MinViewerTheme { MinViewerApp(model, this) } }
-        if (savedInstanceState == null) openIntent(intent)
     }
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); openIntent(intent) }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        documentUri(intent)?.let(model::openUri)
+    }
     @Suppress("DEPRECATION")
-    private fun openIntent(intent: Intent?) {
+    private fun documentUri(intent: Intent?): Uri? {
         val uri = when (intent?.action) {
             Intent.ACTION_VIEW -> intent.data
             Intent.ACTION_SEND -> intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
             else -> null
         }
-        if (uri?.scheme == "content") model.openUri(uri)
+        return uri?.takeIf { it.scheme == "content" }
     }
     override fun onStop() { model.flushPosition(); super.onStop() }
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {

@@ -5,8 +5,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.dp
@@ -63,6 +65,28 @@ class TextReaderBehaviorTest {
     }
 
     @Test
+    fun scrollingReportsTheCurrentAnchorBeforeTheReaderCanBeClosed() {
+        showReader(
+            "닫기 직전 스크롤한 문장을 바로 기억합니다. 0123456789.\n".repeat(350),
+            ReaderSettings(readingMode = ReadingMode.SCROLL),
+        )
+        compose.mainClock.autoAdvance = false
+        try {
+            for (page in listOf(2, 4)) {
+                compose.onNode(hasScrollToIndexAction()).performScrollToIndex(page)
+                // Both changes fit inside the former 180 ms reporting interval.
+                compose.mainClock.advanceTimeBy(32)
+                compose.runOnIdle {
+                    assertTrue("The caller must have the final anchor before disposing the reader", position.index > 0)
+                    assertEquals(page + 1, info.current)
+                }
+            }
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
+    }
+
+    @Test
     fun scrollAnchorSurvivesFontChangesAndPauseWithoutUserMovement() {
         val initial = ReadingPosition(index = 1_237, offset = 0.35f)
         val original = ReaderSettings(readingMode = ReadingMode.SCROLL, font = ReaderFont.MONOSPACE, fontSizeSp = 18f)
@@ -70,12 +94,12 @@ class TextReaderBehaviorTest {
         val originalPageCount = info.total
 
         compose.runOnIdle { preferences.value = original.copy(fontSizeSp = 31f) }
-        compose.waitUntil(10_000) { info.total > originalPageCount }
-        // Flush the reader's 180 ms position sampling after layout completes.
+        compose.waitUntil(10_000) { compose.runOnIdle { info.total > originalPageCount } }
+        // Allow the new viewport to settle after layout completes.
         compose.mainClock.advanceTimeBy(240)
         compose.waitForIdle()
         compose.runOnIdle { preferences.value = original }
-        compose.waitUntil(10_000) { info.total == originalPageCount }
+        compose.waitUntil(10_000) { compose.runOnIdle { info.total == originalPageCount } }
         compose.mainClock.advanceTimeBy(240)
         compose.waitForIdle()
 
@@ -125,7 +149,7 @@ class TextReaderBehaviorTest {
         val largePageCount = info.total
 
         compose.runOnIdle { preferences.value = large.copy(fontSizeSp = 18f) }
-        compose.waitUntil(10_000) { info.total < largePageCount }
+        compose.waitUntil(10_000) { compose.runOnIdle { info.total < largePageCount } }
         // The shorter final content can clamp the first measured scroll viewport.
         compose.mainClock.advanceTimeBy(240)
         compose.waitForIdle()

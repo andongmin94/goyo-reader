@@ -125,7 +125,10 @@ class LibraryRepository(private val context: Context) {
     }
 
     private suspend fun rememberOpened(book: BookRecord) {
-        store.updateData { state -> state.copy(books = state.books.filterNot { it.id == book.id } + book) }
+        store.updateData { state -> state.copy(
+            books = state.books.filterNot { it.id == book.id } + book,
+            openBookId = book.id,
+        ) }
     }
 
     /** ZIP, EPUB and PDF engines need a seekable local file; TXT shares this input path.
@@ -174,9 +177,25 @@ class LibraryRepository(private val context: Context) {
 
     fun flushPosition(id: String, position: ReadingPosition, onError: (Throwable) -> Unit) {
         persistenceScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            try { updatePosition(id, position) } catch (error: Exception) { onError(error) }
+            try { updatePosition(id, position) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Exception) { onError(error) }
         }
     }
+
+    /** Explicitly returning to the directory saves the final position and clears auto-open
+     * together. This write outlives the screen; closing an older book cannot close a newer one. */
+    fun closeReading(id: String, position: ReadingPosition, onError: (Throwable) -> Unit): Job =
+        persistenceScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                store.updateData { state -> state.copy(
+                    books = state.books.map { if (it.id == id) it.copy(position = position) else it },
+                    openBookId = state.openBookId.takeUnless { it == id },
+                ) }
+            } catch (error: CancellationException) { throw error }
+            catch (error: Exception) { onError(error) }
+        }
+
     suspend fun updatePosition(id: String, position: ReadingPosition) {
         store.updateData { state -> state.copy(books = state.books.map {
             if (it.id == id) it.copy(position = position) else it
@@ -190,7 +209,8 @@ class LibraryRepository(private val context: Context) {
     suspend fun deleteBookmark(id: String) { store.updateData { it.copy(bookmarks = it.bookmarks.filterNot { b -> b.id == id }) } }
     suspend fun removeBook(book: BookRecord) = withContext(Dispatchers.IO) {
         store.updateData { it.copy(books = it.books.filterNot { b -> b.id == book.id },
-            bookmarks = it.bookmarks.filterNot { b -> b.bookId == book.id }) }
+            bookmarks = it.bookmarks.filterNot { b -> b.bookId == book.id },
+            openBookId = it.openBookId.takeUnless { id -> id == book.id }) }
         fileFor(book).delete()
         covers.remove(book.id)
     }

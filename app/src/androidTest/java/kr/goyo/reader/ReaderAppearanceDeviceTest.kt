@@ -38,7 +38,12 @@ class ReaderAppearanceDeviceTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private fun model() = ViewModelProvider(compose.activity)[LibraryViewModel::class.java]
 
-    @After fun restoreLightTheme() { forceTheme(false) }
+    @After fun restoreLightTheme() {
+        // Auto-resume is persistent now; do not leave a soon-to-be-deleted test file active.
+        compose.runOnIdle { model().close() }
+        compose.waitUntil(5_000) { model().library.value.openBookId == null }
+        forceTheme(false)
+    }
 
     @Test fun allFiveFormatsRenderInBothThemesWithoutInvertingVisualDocuments() {
         val directory = samples()

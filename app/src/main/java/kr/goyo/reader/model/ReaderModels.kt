@@ -78,6 +78,8 @@ data class LibraryState(
     val settings: ReaderSettings = ReaderSettings(),
     val folderPath: List<FolderLocation> = emptyList(),
     val favoritePaths: List<List<FolderLocation>> = emptyList(),
+    // Persist independently of Android's task state; explicit return to the folder clears it.
+    val openBookId: String? = null,
 )
 
 data class SearchResult(val title: String, val excerpt: String, val position: ReadingPosition)
