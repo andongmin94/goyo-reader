@@ -94,12 +94,12 @@ class TextReaderBehaviorTest {
         val originalPageCount = info.total
 
         compose.runOnIdle { preferences.value = original.copy(fontSizeSp = 31f) }
-        compose.waitUntil(10_000) { info.total > originalPageCount }
+        compose.waitUntil(10_000) { compose.runOnIdle { info.total > originalPageCount } }
         // Allow the new viewport to settle after layout completes.
         compose.mainClock.advanceTimeBy(240)
         compose.waitForIdle()
         compose.runOnIdle { preferences.value = original }
-        compose.waitUntil(10_000) { info.total == originalPageCount }
+        compose.waitUntil(10_000) { compose.runOnIdle { info.total == originalPageCount } }
         compose.mainClock.advanceTimeBy(240)
         compose.waitForIdle()
 
@@ -149,7 +149,7 @@ class TextReaderBehaviorTest {
         val largePageCount = info.total
 
         compose.runOnIdle { preferences.value = large.copy(fontSizeSp = 18f) }
-        compose.waitUntil(10_000) { info.total < largePageCount }
+        compose.waitUntil(10_000) { compose.runOnIdle { info.total < largePageCount } }
         // The shorter final content can clamp the first measured scroll viewport.
         compose.mainClock.advanceTimeBy(240)
         compose.waitForIdle()
