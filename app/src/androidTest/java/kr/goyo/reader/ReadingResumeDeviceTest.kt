@@ -110,12 +110,12 @@ class ReadingResumeDeviceTest {
             val before = position()
             val id = requireNotNull(model.session.value).book.id
             println("RESUME_RESTART $name $before")
-            restartFromLauncher(id, before)
+            val stopped = restartFromLauncher(id, before)
             compose.waitUntil(15_000) {
                 val restored = position()
-                restored.index == before.index && kotlin.math.abs(restored.offset - before.offset) < 0.01f
+                restored.index == stopped.index && kotlin.math.abs(restored.offset - stopped.offset) < 0.01f
             }
-            if (name == ReadingSamples.imageName) assertEquals(before.locator, position().locator)
+            if (name == ReadingSamples.imageName) assertEquals(stopped.locator, position().locator)
             println("RESUME_VERIFIED $name ${position()}")
             compose.onNodeWithContentDescription("폴더로 돌아가기").performClick()
             compose.waitUntil(5_000) { model.session.value == null && model.library.value.openBookId == null }
@@ -195,12 +195,22 @@ class ReadingResumeDeviceTest {
         model.latestPosition(requireNotNull(model.session.value).book)
     }
 
-    private fun restartFromLauncher(id: String, expected: ReadingPosition) {
+    private fun restartFromLauncher(id: String, beforeStop: ReadingPosition): ReadingPosition {
         val oldModel = model
         scenario!!.moveToState(Lifecycle.State.CREATED)
+        // Readium can finish a Locator callback while the Activity is stopping. Verify the
+        // final lifecycle snapshot, rather than requiring an intermediate animated snapshot
+        // to remain on disk. The Activity's normal onStop performs the save; this test does not.
+        var stopped = beforeStop
+        scenario!!.onActivity {
+            stopped = oldModel.latestPosition(requireNotNull(oldModel.session.value).book)
+        }
+        assertEquals("Stopping must retain the page", beforeStop.index, stopped.index)
+        assertEquals("Stopping must retain the reading progression", beforeStop.offset, stopped.offset, 0.01f)
+        println("RESUME_STOPPED $stopped")
         runBlocking {
             withTimeout(10_000) {
-                repository.state.first { state -> state.openBookId == id && state.books.single { it.id == id }.position == expected }
+                repository.state.first { state -> state.openBookId == id && state.books.single { it.id == id }.position == stopped }
             }
         }
         scenario!!.close()
@@ -209,6 +219,7 @@ class ReadingResumeDeviceTest {
         assertNotSame("Do not mistake a retained ViewModel for persistence", oldModel, model)
         waitReader()
         assertEquals(id, requireNotNull(model.session.value).book.id)
-        assertEquals(expected, requireNotNull(model.session.value).book.position)
+        assertEquals(stopped, requireNotNull(model.session.value).book.position)
+        return stopped
     }
 }

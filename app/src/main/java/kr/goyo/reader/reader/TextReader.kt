@@ -68,14 +68,11 @@ import kr.goyo.reader.reader.text.paginateText
 import kr.goyo.reader.reader.text.safeTextOffset
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -173,7 +170,6 @@ fun TextReader(
     }
 }
 
-@OptIn(FlowPreview::class)
 @Composable
 private fun TextReaderContent(
     pagination: TextPagination,
@@ -303,9 +299,12 @@ private fun TextReaderContent(
         } else {
             snapshotFlow { list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset }
                 .distinctUntilChanged()
-                .onEach { viewport -> syncScrollAnchor(viewport) }
-                .sample(180L)
-                .collect { report(anchor.value, pagination.pageFor(anchor.value.index)) }
+                .collect { viewport ->
+                    syncScrollAnchor(viewport)
+                    // Closing the reader must see the current anchor immediately. The
+                    // ViewModel already limits how often this position is written to disk.
+                    report(anchor.value, pagination.pageFor(anchor.value.index))
+                }
         }
     }
 
